@@ -22,7 +22,8 @@ was produced locally; CI produced the previous one successfully.
 ## 2. Milestone commits
 
 ```text
-3c71ec3 feat: add section role colors and Matugen/font sync (M8)
+1a2e99a feat: add section role colors and Matugen/font sync (M8)
+d342a53 docs: record M8/M9 validation and screenshots (M9)
 be6b882 docs: add M8-M9 section and Matugen theme sync goal
 6484a6e docs: record successful CI builds on main
 9f4e15a docs: finalize v1 report, measurements, and validation (M7)
@@ -349,8 +350,19 @@ produces the same `SHA256SUMS` asset for both architectures.
   `screen-time 0.1.0`; no artifacts beside the binary/theme/unit.
 - **No category palette/legend:** all inline colors are role colors from the
   resolved theme; app identity remains the row label.
+- **Warm-open remeasurement:** the M8 wrapper generates a theme (9 ms) and
+  queries the monitor width with `hyprctl` (26–32 ms). Direct Rofi startup with
+  the real user theme/font under Xvfb measured ~185–260 ms end-to-end, above
+  the old 100 ms target. The renderer is still 9 ms; the additional cost is
+  Rofi theme/font startup and the shell/theme setup. This is recorded as a
+  remaining risk, not hidden by the earlier static-theme number.
+- **Wallpaper validation:** the actual desktop wallpaper was not changed (that
+  would alter the user's running session). A copied real palette was changed
+  to `#B0E0A0`/`#40C0D0` and the next render picked it up, which exercises the
+  same palette contract used by `theme-apply`. A visual wallpaper change
+  remains a manual check.
 
-Nix result: `result -> /nix/store/...-screen-time-0.1.0` with
+Nix result: `result -> /nix/store/...-screen-time-0.2.0` with
 `bin/screen-time`, `bin/rofi-screen-time`,
 `share/rofi/screen-time.rasi`, and `systemd/screen-time.service`.
 
