@@ -5,6 +5,11 @@ the Definition of Done is satisfied. Do not stop for design approval; make the
 smallest choice consistent with the specs, record it in `docs/DECISIONS.md`, and
 continue.
 
+**Current baseline (2026-11-21):** M0–M7 are complete and pushed. This goal now
+covers **M8–M9 only**: section layout/role colors and Matugen/font sync. Do not
+redo tracking, storage, the installer, or release work unless a theme change
+requires a small compatibility fix.
+
 ## 0. Repository and boundaries
 
 - **Repo:** `https://github.com/WillGle/screen-time-rofi`
@@ -45,6 +50,8 @@ src/
   idle.rs
   sessions.rs
   snapshot.rs
+  theme.rs
+  config.rs
   render.rs
   doctor.rs
 tests/
@@ -82,6 +89,11 @@ No `jq`, Python, Node, or host `sqlite3` dependency. SQLite is bundled.
 - Main view reads tmpfs; detail reads SQLite + tmpfs; no raw-log scan.
 - Detail may lag one batch; show `sessions through HH:MM`.
 - Static Rofi; no animation, live redraw, socket, or auto-update.
+- Section markers: `SCREEN TIME`/`APPS` use accent; `WHEN`/`POWER`/`7 DAY`
+  use power; other uses muted. No category colors.
+- Theme resolver: config → Matugen palette → `static.env` → built-in defaults,
+  read on every render. Font: config → `static.env` → default. No Hyprland
+  config parsing.
 - `live.json` is written atomically (temp + rename) and has `as_of`,
   `last_commit_at`, open interval, totals, slots.
 - Stale guard: if `as_of` is older than 2 minutes, do not extend the open
@@ -188,7 +200,7 @@ Exit: no leftovers; service active; repeated install is idempotent.
 
 Exit: local artifact installs; CI workflow is syntactically valid.
 
-### M7 — Final validation and report
+### M7 — Final validation and report (complete)
 
 - Fresh HOME install → service active → Rofi main/detail → update → rollback →
   uninstall.
@@ -196,6 +208,72 @@ Exit: local artifact installs; CI workflow is syntactically valid.
 - Measure `/proc/<pid>/io` write bytes, fsync count, PSS, warm open.
 - Update README and docs with actual commands/results.
 - Final report: commits, tests, artifacts, measurements, remaining risks.
+
+### M8 — Sections, role colors, Matugen/font sync
+
+Start from the completed M0–M7 tree. Do not rewrite tracking/storage.
+
+- Sync `docs/SCREEN_TIME_UI_SPEC.md` with the canonical copy in
+  `/etc/nixos/docs/research/SCREEN_TIME_UI_SPEC.md` (already copied into this
+  repo; re-copy if it changed).
+- Add `toml` as a dependency. Add `src/config.rs`:
+  - read `~/.config/screen-time/config.toml`;
+  - missing file is valid; defaults apply;
+  - schema: `[theme] mode/rofi_theme/palette/static_env`, `[font]
+    family/size`, `[layout] mode/auto|full|compact`.
+- Add `src/theme.rs`:
+  - priority: explicit config → Matugen palette → `static.env` → built-in;
+  - validate every color as `^#[0-9A-Fa-f]{6}$`; on failure use the previous
+    full fallback, never half-apply;
+  - map: base/surface, mantle/surface_container, text/on_surface,
+    muted/on_surface_variant, accent/primary, power/palettes.secondary["70"];
+  - `static.env` fallbacks: `THEME_STATIC_*`, `THEME_MONO_FONT`,
+    `THEME_ROFI_FONT_SIZE`, `THEME_UI_FONT`;
+  - no `hyprland.conf` parsing.
+- Add section markers in `src/render.rs`:
+  - `▌ SCREEN TIME`, `▌ WHEN`, `▌ APPS`, `▌ BURSTS`, `▌ 7 DAY`;
+  - summary/apps accent, when/power/7-day power, other muted;
+  - POWER `▓▓` uses power; app `██` uses accent; other `▒▒` uses muted;
+  - no category colors, no legend.
+- Replace hardcoded `ACCENT`, `NEUTRAL`, `OTHER_SHADE` with resolved theme
+  values. In Rofi mode, wrap section markers and strips in Pango spans; plain
+  mode remains escape-free.
+- Font/layout:
+  - font family/size from config, then `THEME_MONO_FONT` +
+    `THEME_ROFI_FONT_SIZE`, then default;
+  - `layout.mode = auto` switches to 48-column/compact/top-four when the
+    configured font no longer fits 96 columns; `full`/`compact` override;
+  - update the installed `share/rofi/screen-time.rasi` to import/fallback the
+    user Rofi theme instead of hardcoded Catppuccin values, or generate a
+    `-theme-str` with the resolved font/background.
+- Tests:
+  - theme resolution: config wins, Matugen wins over static, corrupt palette
+    falls back, missing files use defaults;
+  - font size/compact layout;
+  - golden main/detail at 1280×800 and 1920×1080 with section markers and role
+    colors;
+  - no category colors.
+- Update `README.md` with theme/font config and the Matugen mapping.
+
+Exit: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo test --locked` pass; a wallpaper/palette change updates colors on the
+next Rofi open without daemon restart; a font change updates the app font.
+
+### M9 — Device validation and docs
+
+- On `think14gryzen`, verify against the real
+  `~/.config/theme/generated/palette.json` and
+  `~/.config/theme/static.env`.
+- Change the wallpaper via the existing theme-apply flow; reopen Rofi; confirm
+  section/app/power colors changed and no `hyprland.conf` parsing is involved.
+- Test font sizes 12, 14, 16; verify auto/compact layout and no wrapping.
+- Run the full test suite, Nix build, and installer update/rollback.
+- Update `docs/DECISIONS.md`, `docs/FINAL_REPORT.md`, and the README with the
+  actual results.
+- Commit and push (no force-push).
+
+Exit: Matugen/font sync validated on the device; no leftovers; report includes
+measurements and screenshots/golden diffs.
 
 ## 4. Git protocol
 
@@ -224,7 +302,8 @@ Exit: local artifact installs; CI workflow is syntactically valid.
 - [ ] Daemon tracks Hyprland app-level events and idle.
 - [ ] SQLite WAL batches 60 s/100 events; raw 30 d; sessions 90 d.
 - [ ] `live.json` is atomic and stale-safe.
-- [ ] Rofi main screen matches the 96-column spec.
+- [ ] Rofi main screen matches the 96-column spec with section markers and role colors.
+- [ ] Matugen palette and `static.env` font sync work without daemon restart.
 - [ ] App detail shows bursts and `sessions through`.
 - [ ] No categories/titles/suspend/lock/display/socket/live query.
 - [ ] `install.sh` clean install/update/rollback/uninstall with no leftovers.
@@ -232,5 +311,5 @@ Exit: local artifact installs; CI workflow is syntactically valid.
 - [ ] README has install, update, rollback, uninstall, and troubleshooting.
 - [ ] Final report includes raw measurements and artifacts.
 
-Execute M0 → M7 in order. Do not stop until the Definition of Done is satisfied
-or a hard blocker is documented.
+M0–M7 are complete. Execute **M8 → M9 only**. Do not redo M0–M7. Do not stop
+until the Definition of Done is satisfied or a hard blocker is documented.

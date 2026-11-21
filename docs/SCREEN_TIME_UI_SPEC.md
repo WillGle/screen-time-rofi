@@ -19,7 +19,7 @@
 | Apps | Top 5 + one aggregated “other” line |
 | Scope | App-level only; no window titles, no categories |
 | Power | On/off only; no suspend/lock/display-off |
-| Colors | One accent; no category palette, no moral colors |
+| Colors | Section-coded theme roles (accent/power/muted); no category palette, no moral colors |
 | Navigation | Zero visible buttons; keyboard + one-line footer |
 | Main data | tmpfs `live.json` |
 | Detail data | SQLite closed sessions + tmpfs open interval; may lag one batch |
@@ -38,13 +38,15 @@
 ### Wireframe
 
 ```text
- SCREEN TIME                                  Fri 21 Nov · Today
+▌ SCREEN TIME                                  Fri 21 Nov · Today
  6h 48m active   ▲ 38m vs usual at this time
  powered 12h 40m · span 07:05–17:15 · peak 09:00–10:15
  7d ▁▂▃▅▆▄█  avg 6h 12m
 
+▌ WHEN
                    00                      06                      12                      18                    24
  POWER     12h40m                            ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+▌ APPS
  Code       2h14m                                      ██████          ████
  Firefox    1h32m                                ██                          ████
  Terminal     48m                                              ████
@@ -56,11 +58,17 @@
  ←/→ day   T today   R refresh   ↵ detail   esc close
 ```
 
+`▌` is a colored section marker, not a data mark. Section colors come from
+theme roles, not from app categories.
+
 ### Anatomy
 
 | Zone | Content | Data source |
 |---|---|---|
 | Header | Date/relative day, active total, same-time delta, powered total, active span, peak, 7-day sparkline + average | `live.json` + daily aggregates |
+| `SCREEN TIME` section | Summary; accent-colored marker | static + theme |
+| `WHEN` section | Ruler + POWER row; power-colored marker | static + power sessions |
+| `APPS` section | Ranked app rows + other; accent-colored marker | live + SQLite |
 | Ruler | 00–24, aligned to 30-minute slots | static |
 | POWER | On/off strip; `▓▓` on, blank off | power sessions |
 | App rows | Top five by total active time: name, duration, per-app 96-column strip | `live.json` + SQLite |
@@ -112,11 +120,11 @@ B (experiment) Code       2h14m ×18  ██████
 ### Wireframe
 
 ```text
- Code                                    2h 14m · 33% of today
+▌ Code                                    2h 14m · 33% of today
  18 sessions · median 3m · 8 switches/h
  sessions through 15:21 · may lag one batch
 
- Bursts
+▌ BURSTS
  09:12–09:18   4×   6m
  09:30–09:34   2×   4m
  10:02–10:18   3×   9m
@@ -124,7 +132,8 @@ B (experiment) Code       2h14m ×18  ██████
  14:02–14:20   3×  18m
  + 4 longer sessions   1h 33m
 
- 7d ▁▂▃▅▆▄█   avg 1h 48m
+▌ 7 DAY
+ ▁▂▃▅▆▄█   avg 1h 48m
  ←/→ day   esc back
 ```
 
@@ -179,14 +188,120 @@ B (experiment) Code       2h14m ×18  ██████
 ## 7. Visual system
 
 - Opaque background; no transparency or alpha for primary data.
-- One accent for app activity; `POWER` neutral; `other` neutral shade.
+- **Section colors:** summary/apps use `accent`; timeline/POWER use `power`;
+  other/secondary use `muted`. Section markers (`▌`) use the same role.
+- App activity uses `accent`; `POWER` uses `power`; `other` uses `muted`.
+- No category colors and no red/green judgment.
 - Monospace for ruler, durations, and strips.
 - Body ~12pt; total ~16–18pt.
-- No borders around every section. At most one separator.
+- No borders around every section. Section markers and spacing carry the
+  grouping.
 - No icons required; names carry identity.
 - No animation, spinners, progress bars, hover motion, or live reveal.
-- No category colors, no red/green judgment.
 - Contrast checked at 1280×800 and 1920×1080.
+
+### Section color roles
+
+| Section | Marker/text color | Data color |
+|---|---|---|
+| `SCREEN TIME` | `accent` | totals use `text` |
+| `WHEN` | `power` | POWER `▓▓` uses `power` |
+| `APPS` | `accent` | app `██` uses `accent`; other `▒▒` uses `muted` |
+| `BURSTS` | `accent` | session rows use `text` |
+| `7 DAY` | `power` | sparkline uses `power` |
+
+## 7b. Theme and font synchronization
+
+The app must follow the existing Matugen pipeline on this machine, not invent a
+second theme system.
+
+### Existing pipeline (reference)
+
+```text
+wallpaper
+  → theme-apply / Matugen
+  → ~/.config/theme/generated/palette.json
+  → ~/.config/theme/generated/rofi.rasi
+  → ~/.config/rofi/theme.rasi (Home Manager link)
+```
+
+`~/.config/theme/static.env` holds the resolved fonts and static fallback
+colors. Existing screen-time uses `@theme "~/.config/rofi/theme.rasi"` and
+`modules/desktop/theme/lib/palette.sh`.
+
+### Matugen role mapping
+
+Read the raw Matugen palette at
+`~/.config/theme/generated/palette.json`:
+
+| App role | Matugen path | Static fallback |
+|---|---|---|
+| `base` | `.colors.surface.default.color` | `THEME_STATIC_BASE` |
+| `mantle` | `.colors.surface_container.default.color` | `THEME_STATIC_MANTLE` |
+| `text` | `.colors.on_surface.default.color` | `THEME_STATIC_TEXT` |
+| `muted` | `.colors.on_surface_variant.default.color` | `THEME_STATIC_SUBTEXT` / `THEME_SIGNAL_MUTED` |
+| `accent` | `.colors.primary.default.color` | `THEME_STATIC_ACCENT` |
+| `power` | `.palettes.secondary["70"].color` | `THEME_STATIC_CYAN` |
+| `other` | `muted` | `THEME_STATIC_SUBTEXT` |
+
+Validate every value as `^#[0-9A-Fa-f]{6}$`; on any failure, fall back to
+`static.env`, then to built-in defaults. Never half-apply a palette.
+
+### Rofi theme and chrome
+
+- If `theme.rofi_theme` exists, import it for window chrome/font via `@theme`.
+- The app still computes Pango colors from the palette/static env because inline
+  spans need concrete hex values.
+- If the Rofi theme is missing, use the installed standalone app theme.
+- Do not parse `hyprland.conf`; Hyprland does not own app fonts. The shared sync
+  point is the Rofi theme + `static.env`.
+
+### Font synchronization
+
+Matugen does not set fonts. Use this priority:
+
+1. explicit `~/.config/screen-time/config.toml` `[font]`;
+2. `THEME_MONO_FONT` + `THEME_ROFI_FONT_SIZE` from `static.env`;
+3. installed app default (JetBrainsMono Nerd Font 12pt).
+
+On this machine, changing `theme.fonts.mono` / `theme.fonts.rofi.size` and
+rebuilding updates `static.env`; the app reads it on the next open. No app
+rebuild or daemon restart is required. General GitHub users edit config.toml.
+
+### Config schema
+
+```toml
+[theme]
+mode = "auto" # auto | matugen | static | config
+rofi_theme = "~/.config/rofi/theme.rasi"
+palette = "~/.config/theme/generated/palette.json"
+static_env = "~/.config/theme/static.env"
+
+[font]
+family = "JetBrainsMono Nerd Font"
+size = 12
+
+[layout]
+mode = "auto" # auto | full | compact
+```
+
+### Resolution priority
+
+1. explicit `[theme]`/`[font]` values;
+2. Matugen palette + `static.env` when present;
+3. Rofi theme for chrome/font if resolvable;
+4. built-in high-contrast defaults.
+
+### Refresh behavior
+
+- Read the palette/static env on every `render`; no daemon restart, no cache.
+- Wallpaper change → `theme-apply` regenerates palette/rofi.rasi → next Rofi
+  open shows the new section colors.
+- If the palette is temporarily missing/corrupt, use the last static fallback;
+  never render invisible or low-contrast text.
+- If the font size increases enough that 96 columns no longer fit, `layout.mode
+  = "auto"` switches to 48-column/compact and four app rows. `full`/`compact`
+  can override.
 
 ## 8. Copy deck
 
@@ -215,9 +330,16 @@ translation is a copy-only change.
 - Main reads `$XDG_RUNTIME_DIR/screen-time/live.json` once.
 - Detail reads SQLite for closed sessions; reads live snapshot for the open
   session and `last_commit_at`.
-- Theme is installed by `install.sh`; `ROFI_THEME`/`--theme` can override it.
-- No configuration required for v1. The `×N` experiment can be a build/env flag,
-  not a user-facing setting.
+- `src/theme.rs` resolves config → Matugen palette → `static.env` → built-in
+  defaults on every render; no daemon restart/cache.
+- `src/config.rs` reads `~/.config/screen-time/config.toml`; missing file is
+  valid and uses auto mode.
+- Theme is installed by `install.sh`; `ROFI_THEME`/`--theme` can override the
+  Rofi chrome. Installer never overwrites a user config.
+- Layout `auto` switches to compact when the configured font/screen width no
+  longer fits 96 columns.
+- No configuration is required for defaults; theme/font config is optional.
+- The `×N` experiment can be a build/env flag, not a user-facing setting.
 - No multi-user, network, socket, or live query.
 
 ## 10. Acceptance criteria
@@ -236,6 +358,16 @@ translation is a copy-only change.
    threshold.
 9. No animation; process is idle while the popup is open.
 10. `×N` is either clearly legible as sessions or not shipped.
+11. Sections are visually distinct via `▌` markers and role colors; no category
+    legend is introduced.
+12. A Matugen palette change updates section/app/power colors on the next open
+    without restarting the daemon.
+13. A missing/corrupt palette falls back to `static.env`, then built-in colors;
+    no invisible text.
+14. Changing `theme.fonts.mono`/`theme.fonts.rofi.size` on this machine (or
+    `[font]` in config.toml) changes the app font on the next open.
+15. A larger font that breaks 96 columns automatically selects compact layout,
+    or the user can force `layout.mode = "compact"`.
 
 ## 11. Only remaining UI experiment
 
