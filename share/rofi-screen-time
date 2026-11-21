@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# screen-time Rofi launcher and script-mode shim.
+#
+# Direct invocation starts Rofi. Rofi itself re-invokes this script for every
+# script-mode step (ROFI_RETV is set), and that path only executes the renderer.
+set -u
+
+self=$(readlink -f -- "${BASH_SOURCE[0]}")
+dir=${self%/*}
+
+if [ "${ROFI_RETV+x}" = x ]; then
+    exec "$dir/screen-time" render --format rofi
+fi
+
+theme=${ROFI_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}
+theme_args=()
+if [ -r "$theme" ]; then
+    theme_args=(-theme "$theme")
+fi
+
+exec rofi \
+    -show screen-time \
+    -modes "screen-time:$self" \
+    -pid "${ROFI_PIDFILE:-${XDG_RUNTIME_DIR:-/tmp}/rofi-screen-time.pid}" \
+    -selected-row 6 \
+    -normal-window \
+    -kb-move-char-back "Alt+Left" \
+    -kb-move-char-forward "Alt+Right" \
+    -kb-remove-char-back "Alt+BackSpace" \
+    -kb-custom-1 "Left" \
+    -kb-custom-2 "Right" \
+    -kb-custom-3 "t" \
+    -kb-custom-4 "r" \
+    -kb-custom-5 "BackSpace" \
+    -kb-custom-6 "T" \
+    -kb-custom-7 "R" \
+    "${theme_args[@]}"

@@ -42,8 +42,10 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
         match retv {
             1 => {
                 if let Ok(info) = std::env::var("ROFI_INFO") {
-                    if !info.is_empty() && info != "__back__" {
-                        state.app = Some(info);
+                    match info.as_str() {
+                        "" | "__none__" => {}
+                        "__back__" => state.app = None,
+                        _ => state.app = Some(info),
                     }
                 }
             }

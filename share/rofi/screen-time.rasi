@@ -1,0 +1,71 @@
+configuration {
+    font: "monospace 12";
+    show-icons: false;
+    disable-history: true;
+    hover-select: false;
+    cycle: true;
+    matching: "fuzzy";
+}
+
+* {
+    background-color: #1e1e2e;
+    text-color: #cdd6f4;
+    border-color: #313244;
+    selected-normal-background: #313244;
+    selected-normal-foreground: #f5e0dc;
+    normal-background: #1e1e2e;
+    normal-foreground: #cdd6f4;
+    foreground: #cdd6f4;
+    background: #1e1e2e;
+    spacing: 0;
+    margin: 0;
+    padding: 0;
+}
+
+window {
+    width: 94%;
+    height: 55%;
+    location: center;
+    anchor: center;
+    border: 0;
+    padding: 14px;
+    background-color: #1e1e2e;
+}
+
+mainbox {
+    background-color: #1e1e2e;
+    children: [ listview ];
+    spacing: 0;
+}
+
+inputbar {
+    enabled: false;
+}
+
+listview {
+    background-color: #1e1e2e;
+    columns: 1;
+    lines: 14;
+    spacing: 0;
+    scrollbar: false;
+    cycle: true;
+    dynamic: false;
+}
+
+element {
+    padding: 2px 8px;
+    background-color: #1e1e2e;
+    text-color: #cdd6f4;
+}
+
+element selected {
+    background-color: #313244;
+    text-color: #f5e0dc;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+    font: "monospace 12";
+    vertical-align: 0.5;
+}

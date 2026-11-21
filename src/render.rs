@@ -67,6 +67,7 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         out.push_str("\0use-hot-keys\x1ftrue\n");
         out.push_str("\0markup-rows\x1ftrue\n");
         out.push_str("\0no-custom\x1ftrue\n");
+        out.push_str("\0keep-selection\x1ftrue\n");
     }
 
     let date_label = timeutil::format_date_label(view.date, view.today);
@@ -200,7 +201,7 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         emit(
             &mut out,
             " No activity recorded today",
-            RowMeta::NonSelectable,
+            RowMeta::App("__none__".to_owned()),
             mode,
         );
     }
@@ -219,6 +220,7 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
         out.push_str("\0use-hot-keys\x1ftrue\n");
         out.push_str("\0markup-rows\x1ftrue\n");
         out.push_str("\0no-custom\x1ftrue\n");
+        out.push_str("\0keep-selection\x1ftrue\n");
     }
 
     let right = format!(
@@ -306,7 +308,7 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
     emit(
         &mut out,
         " ←/→ day   esc back",
-        RowMeta::NonSelectable,
+        RowMeta::App("__back__".to_owned()),
         mode,
     );
     out
