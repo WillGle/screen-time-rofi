@@ -92,7 +92,7 @@ Finished `dev` profile ... (no warnings)
 CLIPPY_OK
 
 $ cargo test --locked
-37 passed (unit tests)
+38 passed (unit tests)
  1 passed (daemon_smoke)
  8 passed (golden/protocol/stale)
 0 failed
@@ -282,8 +282,10 @@ dist/screen-time-x86_64-linux.tar.gz
   LICENSE
   README.md
 dist/SHA256SUMS
-  e95a3e197bf73ff8a8625d8566d68d3899c89e87aac4fd2be2aef1362993b69c  screen-time-x86_64-linux.tar.gz
 ```
+
+The checksum is regenerated from the packaged file; the release workflow
+produces the same `SHA256SUMS` asset for both architectures.
 
 Nix result: `result -> /nix/store/...-screen-time-0.1.0` with
 `bin/screen-time`, `bin/rofi-screen-time`,

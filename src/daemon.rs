@@ -35,6 +35,7 @@ pub fn run() -> Result<()> {
     db.set_meta("daemon_pid", &std::process::id().to_string())?;
     db.set_meta("daemon_started_at", &timeutil::rfc3339(now_ts))?;
     db.set_meta("clean_shutdown", "0")?;
+    let _ = db.retention(today, now_ts);
     db.commit_batch(
         &[EventRecord {
             ts: now_ts,
@@ -445,7 +446,8 @@ impl Tracker {
         );
         snapshot.closed_active_seconds = self.day.active_seconds();
         snapshot.powered_closed_seconds = self.day.powered_seconds;
-        snapshot.powered_open_start = Some(timeutil::rfc3339(self.power_start_ts));
+        let (day_start, _) = timeutil::day_bounds(self.date);
+        snapshot.powered_open_start = Some(timeutil::rfc3339(self.power_start_ts.max(day_start)));
         snapshot.first_active_ts = self.day.first_active_ts();
         snapshot.last_active_ts = self.day.last_active_ts();
         snapshot.open = self.open.as_ref().map(|open| OpenInterval {
@@ -572,6 +574,23 @@ mod tests {
         assert_eq!(snapshot.closed_active_seconds, 300);
         assert_eq!(snapshot.apps["Code"].closed_seconds, 300);
         assert!(snapshot.power_slots.len() == SLOT_COUNT);
+    }
+
+    #[test]
+    fn snapshot_clips_open_power_to_viewed_day() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (day_start, _) = timeutil::day_bounds(date);
+        let tracker = Tracker::new(
+            date,
+            crate::db::DayData::new(date),
+            day_start,
+            "boot".to_owned(),
+            day_start - 3_600,
+        );
+        let snapshot = tracker.snapshot(day_start + 60);
+        let start = snapshot.powered_open_start_ts().unwrap();
+        assert!(start >= day_start);
+        assert_eq!(start, day_start);
     }
 
     #[test]
