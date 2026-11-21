@@ -70,8 +70,10 @@ Recorded conflicts and resolutions:
 - App names are normalized from the Hyprland class: trim, collapse whitespace,
   strip a `-url-handler` suffix, and apply a small canonical-name table for
   common applications. Unknown all-lowercase names get an initial capital.
-- Ignored classes: empty/`desktop`, lock surfaces (`hyprlock`, `swaylock`,
-  `gtklock`, `i3lock`, anything containing `lock`), and Rofi/Wofi launchers.
+- Ignored classes: empty/`desktop`, the known lock surfaces (`hyprlock`,
+  `swaylock`, `gtklock`, `i3lock`, `xscreensaver`, `org.gnome.ScreenSaver`,
+  `lock`), and Rofi/Wofi launchers. Substring matching is not used so ordinary
+  app names such as "Clock" are not discarded.
 - A slot is active when it contains at least **60 seconds** of activity, as
   required by the UI spec.
 
