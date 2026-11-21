@@ -8,8 +8,8 @@
 
 ## 1. Status
 
-M0–M9 are complete locally. Tracking, the live snapshot, SQLite persistence,
-Rofi rendering, section-role colors, Matugen/font sync, the installer
+M0–M10 are complete locally. Tracking, the live snapshot, SQLite persistence,
+Rofi rendering, section-role colors, Matugen/font sync, the Home Manager module, the installer
 lifecycle, Nix packaging, and the release workflow exist and are covered by
 tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.2.1`
 is published with the M8/M9 code and the `THEME_UI_FONT` fallback fix. GitHub

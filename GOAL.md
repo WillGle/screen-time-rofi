@@ -5,10 +5,9 @@ the Definition of Done is satisfied. Do not stop for design approval; make the
 smallest choice consistent with the specs, record it in `docs/DECISIONS.md`, and
 continue.
 
-**Current baseline (2026-11-21):** M0–M7 are complete and pushed. This goal now
-covers **M8–M9 only**: section layout/role colors and Matugen/font sync. Do not
-redo tracking, storage, the installer, or release work unless a theme change
-requires a small compatibility fix.
+**Status (2026-11-21): complete.** M0–M10 are implemented, tested, and released
+as `v0.2.1`. This goal is closed; do not rerun M0–M10 unless a regression is
+found.
 
 ## 0. Repository and boundaries
 
@@ -308,19 +307,18 @@ measurements and screenshots/golden diffs.
 
 ## 6. Definition of Done
 
-- [ ] `cargo fmt --check`, `cargo clippy`, `cargo test` pass.
-- [ ] `cargo run -- --version` works.
-- [ ] Daemon tracks Hyprland app-level events and idle.
-- [ ] SQLite WAL batches 60 s/100 events; raw 30 d; sessions 90 d.
-- [ ] `live.json` is atomic and stale-safe.
-- [ ] Rofi main screen matches the 96-column spec with section markers and role colors.
-- [ ] Matugen palette and `static.env` font sync work without daemon restart.
-- [ ] App detail shows bursts and `sessions through`.
-- [ ] No categories/titles/suspend/lock/display/socket/live query.
-- [ ] `install.sh` clean install/update/rollback/uninstall with no leftovers.
-- [ ] Nix build and release workflow exist.
-- [ ] README has install, update, rollback, uninstall, and troubleshooting.
-- [ ] Final report includes raw measurements and artifacts.
+- [x] `cargo fmt --check`, `cargo clippy`, `cargo test` pass.
+- [x] `cargo run -- --version` works.
+- [x] Daemon tracks Hyprland app-level events and idle.
+- [x] SQLite WAL batches 60 s/100 events; raw 30 d; sessions 90 d.
+- [x] `live.json` is atomic and stale-safe.
+- [x] Rofi main screen matches the 96-column spec with section markers and role colors.
+- [x] Matugen palette and `static.env` font sync work without daemon restart.
+- [x] App detail shows bursts and `sessions through`.
+- [x] No categories/titles/suspend/lock/display/socket/live query.
+- [x] `install.sh` clean install/update/rollback/uninstall with no leftovers.
+- [x] Nix build and release workflow exist.
+- [x] README has install, update, rollback, uninstall, and troubleshooting.
+- [x] Final report includes raw measurements and artifacts.
 
-M0–M7 are complete. Execute **M8 → M9 only**. Do not redo M0–M7. Do not stop
-until the Definition of Done is satisfied or a hard blocker is documented.
+M0–M10 are complete. This goal is closed. Open a new goal for further work.
