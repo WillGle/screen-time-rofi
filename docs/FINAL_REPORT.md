@@ -12,16 +12,17 @@
 The v1 implementation is complete locally. Tracking, the live snapshot,
 SQLite persistence, Rofi rendering, the installer lifecycle, Nix packaging, and
 the release workflow exist and are covered by tests. `main` has been pushed to
-`https://github.com/WillGle/screen-time-rofi`. GitHub Actions run
-`44900005435` on `main` passed the format/clippy/test/shellcheck job and both
-native build jobs (`ubuntu-latest` x86_64 and `ubuntu-24.04-arm` aarch64). The
-release job was correctly skipped because the push was not a tag. A Git tag /
-GitHub release is a separate deliberate publish step, not an automatic push
-action. No AArch64 artifact was produced locally; CI produced it successfully.
+`https://github.com/WillGle/screen-time-rofi`, and tag `v0.1.0` was published.
+GitHub Actions run `44900005435` on `main` passed the
+format/clippy/test/shellcheck job and both native build jobs (`ubuntu-latest`
+x86_64 and `ubuntu-24.04-arm` aarch64). Tag run `44900514404` then published
+the release. No AArch64 artifact was produced locally; CI produced it
+successfully.
 
 ## 2. Milestone commits
 
 ```text
+6484a6e docs: record successful CI builds on main
 9f4e15a docs: finalize v1 report, measurements, and validation (M7)
 55fe810 build: add Nix package and release workflow (M6)
 b745692 feat: add installer lifecycle and release packaging (M5)
@@ -270,7 +271,36 @@ The installer itself was exercised end-to-end with `--no-service`; the
 remaining service step is identical (`daemon-reload`, `enable --now`,
 `doctor`).
 
+The published release was also installed directly from GitHub in a fresh
+temporary HOME:
+
+```text
+$ curl -fsSL .../releases/latest/download/install.sh
+$ bash install.sh --no-service
+downloading screen-time-x86_64-linux.tar.gz (v0.1.0)
+installed 0.1.0 from v0.1.0
+$ screen-time --version
+screen-time 0.1.0
+$ install.sh --check
+installed: screen-time 0.1.0
+latest:    v0.1.0
+$ install.sh --no-service --uninstall --purge
+state removed
+```
+
+The release tarball checksum matched the published `SHA256SUMS`.
+
 ## 7. Artifacts
+
+GitHub release `v0.1.0` assets:
+
+```text
+screen-time-x86_64-linux.tar.gz   2,669,932 bytes
+screen-time-aarch64-linux.tar.gz  2,525,341 bytes
+SHA256SUMS
+install.sh
+uninstall.sh
+```
 
 Local x86_64 release tarball:
 
@@ -319,9 +349,8 @@ artifacts are not committed.
 7. **AArch64 CI.** The workflow uses `ubuntu-24.04-arm`; the job is marked
    experimental so the x86_64 release is not blocked if that runner is
    unavailable. No AArch64 artifact was produced locally.
-8. **Release publish is a tag step.** `main` is pushed; no tag/release was
-   created during the measured run. Creating `v0.1.0` triggers the release
-   workflow. Credentials for a direct `gh release` call were not configured.
+8. **Release.** `v0.1.0` is published and installable from the release URL.
+   Future releases are tag-triggered; there is no auto-update daemon.
 9. **Fixed Rofi selection row.** The launcher selects absolute row 6, which is
    the first app row with the locked four-header layout. Changing the header
    count requires updating `-selected-row` in the shim.
