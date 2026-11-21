@@ -11,16 +11,17 @@
 M0–M9 are complete locally. Tracking, the live snapshot, SQLite persistence,
 Rofi rendering, section-role colors, Matugen/font sync, the installer
 lifecycle, Nix packaging, and the release workflow exist and are covered by
-tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.2.0`
-is published with the M8/M9 code. GitHub Actions run `44920439259` passed the
-format/clippy/test/shellcheck job and both native build jobs (`ubuntu-latest`
-x86_64 and `ubuntu-24.04-arm` aarch64), then published the release. The earlier
-`v0.1.0` release remains available. No AArch64 artifact was produced locally;
-CI produced it successfully.
+tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.2.1`
+is published with the M8/M9 code and the `THEME_UI_FONT` fallback fix. GitHub
+Actions run `44923914490` passed the format/clippy/test/shellcheck job and both
+native build jobs (`ubuntu-latest` x86_64 and `ubuntu-24.04-arm` aarch64), then
+published the release. The earlier `v0.1.0`/`v0.2.0` releases remain available.
+No AArch64 artifact was produced locally; CI produced it successfully.
 
 ## 2. Milestone commits
 
 ```text
+c8447eb fix: accept THEME_UI_FONT as secondary font fallback
 2c0ca38 docs: record M8/M9 commit hashes and revalidation
 d342a53 docs: record M8/M9 validation and screenshots (M9)
 1a2e99a feat: add section role colors and Matugen/font sync (M8)
@@ -295,11 +296,11 @@ The release tarball checksum matched the published `SHA256SUMS`.
 
 ## 7. Artifacts
 
-GitHub release `v0.2.0` assets (`https://github.com/WillGle/screen-time-rofi/releases/tag/v0.2.0`):
+GitHub release `v0.2.1` assets (`https://github.com/WillGle/screen-time-rofi/releases/tag/v0.2.1`):
 
 ```text
-screen-time-x86_64-linux.tar.gz   2,826,776 bytes
-screen-time-aarch64-linux.tar.gz  2,673,533 bytes
+screen-time-x86_64-linux.tar.gz   2,826,539 bytes
+screen-time-aarch64-linux.tar.gz  2,673,325 bytes
 SHA256SUMS
 install.sh                        19,537 bytes
 uninstall.sh                       3,141 bytes
@@ -350,10 +351,10 @@ produces the same `SHA256SUMS` asset for both architectures.
   `screen-time 0.1.0`; no artifacts beside the binary/theme/unit.
 - **No category palette/legend:** all inline colors are role colors from the
   resolved theme; app identity remains the row label.
-- **Published release:** downloaded `v0.2.0` `SHA256SUMS`, verified both
+- **Published release:** downloaded `v0.2.1` `SHA256SUMS`, verified both
   tarballs plus `install.sh`/`uninstall.sh` with `sha256sum -c`, installed in a
-  fresh temporary HOME, and ran `screen-time --version` → `0.2.0` and
-  `install.sh --check` → latest `v0.2.0`.
+  fresh temporary HOME, and ran `screen-time --version` → `0.2.1` and
+  `install.sh --check` → latest `v0.2.1`.
 - **Warm-open remeasurement:** the M8 wrapper generates a theme (9 ms) and
   queries the monitor width with `hyprctl` (26–32 ms). Direct Rofi startup with
   the real user theme/font under Xvfb measured ~185–260 ms end-to-end, above
@@ -366,7 +367,7 @@ produces the same `SHA256SUMS` asset for both architectures.
   same palette contract used by `theme-apply`. A visual wallpaper change
   remains a manual check.
 
-Nix result: `result -> /nix/store/...-screen-time-0.2.0` with
+Nix result: `result -> /nix/store/...-screen-time-0.2.1` with
 `bin/screen-time`, `bin/rofi-screen-time`,
 `share/rofi/screen-time.rasi`, and `systemd/screen-time.service`.
 
@@ -397,7 +398,7 @@ artifacts are not committed.
 7. **AArch64 CI.** The workflow uses `ubuntu-24.04-arm`; the job is marked
    experimental so the x86_64 release is not blocked if that runner is
    unavailable. No AArch64 artifact was produced locally.
-8. **Release.** `v0.2.0` is published and installable from the release URL.
+8. **Release.** `v0.2.1` is published and installable from the release URL.
    Future releases are tag-triggered; there is no auto-update daemon.
 9. **Fixed Rofi selection row.** The launcher selects absolute row 8, which is
    the first app row with the section layout. Changing the section/header count
