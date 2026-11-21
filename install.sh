@@ -183,6 +183,23 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+refuse_nix_managed_path() {
+    local path="$1"
+    [ -L "$path" ] || return 0
+    local target
+    target="$(readlink -f -- "$path" 2>/dev/null || true)"
+    case "$target" in
+        /nix/store/*)
+            die "$path is managed by Nix/Home Manager. Remove the old screen-time module and use homeManagerModules.default, or remove the Nix-managed link intentionally; refusing to overwrite it."
+            ;;
+    esac
+}
+
+# Never replace a Home Manager/Nix-managed launcher, unit, or theme.
+refuse_nix_managed_path "$WRAPPER"
+refuse_nix_managed_path "$UNIT"
+refuse_nix_managed_path "$THEME"
+
 require_base_tools() {
     have tar || die "tar is required"
     have sha256sum || die "sha256sum is required"

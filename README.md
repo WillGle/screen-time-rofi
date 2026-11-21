@@ -303,6 +303,11 @@ Common cases:
   slot threshold still appears in the app total but not as a full strip block.
 - **Theme conflict on update**: the installed theme differs from the last
   installer-managed copy. Back it up and rerun with `--force`.
+- **`rofi-screen-time` still opens the old UI**: `~/.local/bin/rofi-screen-time`
+  is probably a Home Manager/Nix symlink from the old module. The installer now
+  refuses to overwrite it. Remove the old screen-time module and use
+  `homeManagerModules.default`, or intentionally remove the old Nix-managed
+  link before running `install.sh`; never let both manage the same path.
 - **`rofi: failed to set binding`**: another Rofi instance owns the default
   pidfile. The wrapper uses `rofi-screen-time.pid`; remove a stale
   `$XDG_RUNTIME_DIR/rofi-screen-time.pid` only when no popup is running.

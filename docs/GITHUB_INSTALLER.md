@@ -318,7 +318,8 @@ Current state:
 - `nix profile install` alone still does not wire the service; it is not a
   one-time install.
 - Do not run `install.sh` and also manage the package through Nix; pick one
-  owner.
+  owner. The installer refuses to overwrite a `rofi-screen-time`/unit/theme that
+  is a symlink into `/nix/store`.
 
 On NixOS, the installer detects `/etc/NIXOS` and prints this recommendation; it
 must never write into `/nix/store`.
