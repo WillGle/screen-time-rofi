@@ -12,7 +12,7 @@ if [ "${ROFI_RETV+x}" = x ]; then
     exec "$dir/screen-time" render --format rofi
 fi
 
-theme=${ROFI_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}
+theme=${ROFI_THEME:-${SCREEN_TIME_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}}
 theme_args=()
 if [ -r "$theme" ]; then
     theme_args=(-theme "$theme")
