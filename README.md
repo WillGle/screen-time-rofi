@@ -160,8 +160,10 @@ mode = "auto" # auto | full | compact
 
 Resolution order is explicit config → Matugen palette → `static.env` →
 built-in high-contrast defaults. Every color is validated as `^#[0-9A-Fa-f]{6}$`;
-an invalid palette is ignored as a whole and the next fallback is used. The
-Matugen mapping is:
+an invalid palette is ignored as a whole and the next fallback is used.
+`theme.mode = "static"` skips the Matugen palette; `"config"` ignores both the
+palette and `static.env` colors and uses explicit `[theme]` values plus the
+built-ins. The Matugen mapping is:
 
 | Role | Matugen path | Static fallback |
 |---|---|---|
@@ -173,11 +175,12 @@ Matugen mapping is:
 | power | `.palettes.secondary["70"].color` | `THEME_STATIC_CYAN` |
 | other | muted | `THEME_STATIC_SUBTEXT` |
 
-Font priority is config `[font]` → `THEME_MONO_FONT` +
-`THEME_ROFI_FONT_SIZE` → JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"`
-switches to the 48-column/compact/four-row layout when the configured font no
-longer fits 96 columns; `full` and `compact` force a layout. `rofi-screen-time`
-queries the focused monitor width with `hyprctl monitors -j`; set
+Font priority is config `[font]` → `THEME_MONO_FONT` (with
+`THEME_UI_FONT` as a secondary fallback) + `THEME_ROFI_FONT_SIZE` →
+JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"` switches to the
+48-column/compact/four-row layout when the configured font no longer fits 96
+columns; `full` and `compact` force a layout. `rofi-screen-time` queries the
+focused monitor width with `hyprctl monitors -j`; set
 `SCREEN_TIME_SCREEN_WIDTH` to override it.
 
 The palette, `static.env`, and font are read on every `render`. A wallpaper or
@@ -188,6 +191,37 @@ theme for chrome if it exists, and passes the resolved font/colors to Rofi.
 `ROFI_THEME` overrides the base Rofi theme. The installed
 `share/rofi/screen-time.rasi` is only a fallback. The installer never overwrites
 `~/.config/screen-time/config.toml`.
+
+### M9 device validation
+
+Validated on `think14gryzen` (Hyprland 0.55.4, Rofi 2.0.0, eDP-1 3072x1920 at
+scale 1.5) against the real `~/.config/theme/generated/palette.json` and
+`~/.config/theme/static.env`:
+
+- **Real palette:** base `#101410`, mantle `#1c211b`, text `#e0e4db`, muted
+  `#c2c9bd`, accent `#9fd49c`, power `#9eb09a`; static font
+  `JetBrainsMono Nerd Font 10`.
+- **Real wallpaper change:** a generated wallpaper was applied with
+  `~/.config/theme/theme-apply --wallpaper ...`. The palette changed to base
+  `#1a1110`, mantle `#271d1c`, text `#f1dfdb`, muted `#d8c2be`, accent
+  `#ffb4a6`, power `#caa29b`; the next popup used the new accent/power/muted
+  colors with no daemon restart. The original wallpaper was restored afterwards.
+  Screenshots:
+  [`m9-main-original-palette.png`](docs/screenshots/m9-main-original-palette.png)
+  and
+  [`m9-main-changed-palette.png`](docs/screenshots/m9-main-changed-palette.png).
+- **Font sizes 12/14/16:** ruler widths were 116/68/68 columns; 14 pt and 16 pt
+  selected the compact/top-four layout, and `layout.mode = "full"` forced the
+  116-column layout back.
+- **No Hyprland config parsing:** only the generated palette, `static.env`, the
+  config file, and the optional Rofi theme are read.
+- **Packaging:** `nix build .#` produced `screen-time 0.2.1`; the installer
+  updated v0.1.0 → v0.2.1, rolled back to v0.1.0, kept exactly one backup after
+  a successful update, and uninstalled with no leftover files or staging
+  directories.
+
+The full before/after values, measurements, and golden diffs are in
+[`docs/FINAL_REPORT.md`](docs/FINAL_REPORT.md#m8m9-validation).
 
 ## Update, rollback, uninstall
 
