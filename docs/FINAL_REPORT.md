@@ -3,7 +3,7 @@
 - **Date:** 2026-11-21
 - **Repository:** `/home/will/src/screen-time-rofi`
 - **Branch:** `main`
-- **Version:** 0.2.0
+- **Version:** 0.2.1
 - **Platform:** Linux, Hyprland 0.55.4, Rofi 2.0.0, systemd user session
 
 ## 1. Status
@@ -97,7 +97,7 @@ Finished `dev` profile ... (no warnings)
 CLIPPY_OK
 
 $ cargo test --locked
-48 passed (unit tests, including config/theme/layout)
+49 passed (unit tests, including config/theme/layout)
  1 passed (daemon_smoke)
 12 passed (golden, protocol, stale, theme integration, layout)
 0 failed

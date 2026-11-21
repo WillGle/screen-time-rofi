@@ -308,8 +308,9 @@ fn required_color(vars: &HashMap<String, String>, keys: &[&str]) -> Option<Strin
 
 fn font_from_static(path: &Path) -> Option<(Option<String>, Option<u8>)> {
     let vars = parse_env_file(path)?;
-    let family = vars
-        .get("THEME_MONO_FONT")
+    let family = ["THEME_MONO_FONT", "THEME_UI_FONT"]
+        .iter()
+        .find_map(|key| vars.get(*key))
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty() && !value.chars().any(char::is_control));
     let size = vars
@@ -555,6 +556,21 @@ THEME_STATIC_CYAN='#33cccc'
         assert!(rasi.contains("font: \"Test Mono 14\""));
         assert_eq!(theme.accent, "#58a6ff");
         assert_eq!(theme.power, "#39c5cf");
+    }
+
+    #[test]
+    fn ui_font_is_secondary_fallback() {
+        let dir = tempdir().unwrap();
+        let palette_path = dir.path().join("missing.json");
+        let static_path = dir.path().join("static.env");
+        write(
+            &static_path,
+            &static_env().replace("THEME_MONO_FONT='Static Mono'", "THEME_UI_FONT='UI Mono'"),
+        );
+        let theme =
+            Theme::resolve_with_paths(&Config::default(), dir.path(), &palette_path, &static_path);
+        assert_eq!(theme.font_family, "UI Mono");
+        assert_eq!(theme.font_size, 13);
     }
 
     #[test]
