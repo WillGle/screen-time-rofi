@@ -329,7 +329,7 @@ fn row_line(
     let duration = timeutil::format_duration_compact(seconds);
     let prefix = if layout.session_count {
         format!(
-            " {}{:>6} ×{:<2}  ",
+            " {}{:>6} ×{:<2} ",
             fitted,
             duration,
             sessions.unwrap_or(0).min(99)
@@ -340,9 +340,12 @@ fn row_line(
     format!("{prefix}{strip}")
 }
 
-fn other_line(_layout: &Layout, other: &OtherRow, strip: &str) -> String {
+fn other_line(layout: &Layout, other: &OtherRow, strip: &str) -> String {
     let label = format!("+{} apps", other.count);
-    let fitted = display_name(&label, 10);
+    let mut fitted = display_name(&label, 10);
+    if layout.session_count {
+        fitted.push(' ');
+    }
     let duration = timeutil::format_duration_compact(other.seconds);
     let prefix = format!(" {}{:>6}   ", fitted, duration);
     format!("{prefix}{strip}")

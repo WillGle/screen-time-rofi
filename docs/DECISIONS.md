@@ -19,11 +19,13 @@ Recorded conflicts and resolutions:
    needs a per-app strip. Resolution: the live snapshot keeps a flat total
    `slots` array for compatibility and adds per-app `apps[].slots` plus
    `power_slots`. This is a storage-document extension, not a UI change.
-2. The storage document suggests optionally refreshing a live snapshot on a
-   timer. The goal requires `live.json` to update on events. Resolution: write
-   the live snapshot on events, on batch commit (to update
-   `last_commit_at`), on day rollover, and on shutdown. No timer-only refresh.
-   The tmpfs heartbeat is therefore not used.
+2. The storage document suggests updating the live snapshot on state changes,
+   while the UI stale guard requires `as_of` to stay fresh during a long
+   uninterrupted session. Resolution: write `live.json` on every state change,
+   on batch commit (to update `last_commit_at`), on day rollover, and on
+   shutdown. A once-per-minute tmpfs-only heartbeat refreshes `as_of` without
+   polling application state and without any disk write. This is not a
+   5-second sampler and does not change the batch policy.
 3. The installer document names `rofi-screen-time` both as the launcher and as
    a thin shim to `screen-time render`. Resolution: one shell shim detects
    whether Rofi is calling it (`ROFI_RETV` is set). Under Rofi it execs the
@@ -141,8 +143,14 @@ Recorded conflicts and resolutions:
 - Under Rofi (`ROFI_RETV` set) the same command emits Rofi script-mode metadata:
   hot keys, non-selectable header/ruler/power/footer rows, and `info` metadata
   carrying the full app key on selectable app rows.
-- Custom keys: Left/Right previous/next day, `T` today, `R` refresh,
-  `BackSpace` back from detail. `Esc` closes; Rofi owns that key.
+- Custom keys: Left/Right previous/next day, `T`/`t` today, `R`/`r` refresh,
+  `BackSpace` back from detail. `Esc` closes; Rofi owns that key. The default
+  Left/Right/Backspace bindings are moved to Alt-modified keys so the required
+  custom bindings do not conflict.
+- Rofi skips empty rows. The fixed 20-column prefix and four header lines put
+  the first selectable app row at absolute row 6; the launcher passes
+  `-selected-row 6` so navigation starts on data rather than a header. Script
+  mode keeps the selection across re-renders.
 - UI state (viewed date and open detail) lives in
   `$XDG_RUNTIME_DIR/screen-time/ui.json`, is reset on the first script call, and
   is written atomically. It is ephemeral UI state, not tracked data.

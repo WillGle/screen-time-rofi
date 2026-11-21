@@ -27,6 +27,10 @@ ASSET="screen-time-${ARCH}-linux.tar.gz"
 tar -czf "$ROOT/dist/$ASSET" -C "$STAGE" .
 (
     cd "$ROOT/dist"
+    if [ -f SHA256SUMS ]; then
+        grep -v "  ${ASSET}$" SHA256SUMS > SHA256SUMS.tmp || true
+        mv SHA256SUMS.tmp SHA256SUMS
+    fi
     sha256sum "$ASSET" >> SHA256SUMS
 )
 printf '%s\n' "$ROOT/dist/$ASSET"

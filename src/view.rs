@@ -321,12 +321,15 @@ pub fn load_detail(
     }
 
     if let Some(snapshot) = live_today {
-        if !live_stale
-            && snapshot.open.as_ref().is_some_and(|open| open.app == app)
-            && let Some(start) = snapshot.open_start_ts()
-            && let Some(session) =
-                Session::new(app, date.format("%Y-%m-%d").to_string(), start, now_ts)
-        {
+        let open_session =
+            if !live_stale && snapshot.open.as_ref().is_some_and(|open| open.app == app) {
+                snapshot.open_start_ts().and_then(|start| {
+                    Session::new(app, date.format("%Y-%m-%d").to_string(), start, now_ts)
+                })
+            } else {
+                None
+            };
+        if let Some(session) = open_session {
             sessions.push(session);
         }
     }

@@ -144,7 +144,8 @@ BIN_DIR="${PREFIX}/bin"
 BIN="${BIN_DIR}/${PROG}"
 WRAPPER="${BIN_DIR}/rofi-screen-time"
 DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
-THEME="${DATA_HOME}/screen-time/rofi/screen-time.rasi"
+THEME_DIR="${DATA_HOME}/screen-time"
+THEME="${THEME_DIR}/rofi/screen-time.rasi"
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 UNIT="${CONFIG_HOME}/systemd/user/screen-time.service"
 STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/screen-time"
@@ -197,7 +198,7 @@ require_runtime_tools() {
             || die "the systemd user manager is unavailable (or use --no-service)"
     fi
     have rofi || die "rofi is required for the screen-time UI; install rofi first"
-    if ! have hyprctl && [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && ! hyprctl version >/dev/null 2>&1; then
         if [ "$REQUIRE_HYPRLAND" -eq 1 ]; then
             die "Hyprland was not detected and --require-hyprland was set"
         fi
@@ -322,6 +323,12 @@ restore_backup() {
         rm -f -- "${DB}-wal" "${DB}-shm"
         if [ -f "${backup}/db/screen-time.db" ]; then
             atomic_install "${backup}/db/screen-time.db" "$DB" 600
+        fi
+        if [ -f "${backup}/db/screen-time.db-wal" ]; then
+            atomic_install "${backup}/db/screen-time.db-wal" "${DB}-wal" 600
+        fi
+        if [ -f "${backup}/db/screen-time.db-shm" ]; then
+            atomic_install "${backup}/db/screen-time.db-shm" "${DB}-shm" 600
         fi
     fi
     if [ -f "${backup}/VERSION" ]; then
