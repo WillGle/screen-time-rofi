@@ -315,6 +315,9 @@ restore_backup() {
     fi
     if [ -f "${backup}/theme.rasi" ]; then
         atomic_install "${backup}/theme.rasi" "$THEME" 644
+        atomic_write_text "$THEME_SHA_FILE" 644 "$(sha256sum "$THEME" | awk '{print $1}')"
+    else
+        rm -f -- "$THEME_SHA_FILE"
     fi
     if [ -f "${backup}/unit.service" ]; then
         atomic_install "${backup}/unit.service" "$UNIT" 644
@@ -426,6 +429,7 @@ do_rollback() {
         "$BIN" doctor || warn "doctor reported problems after rollback"
     fi
     rm -rf -- "$latest"
+    prune_backups "$KEEP_BACKUPS"
     info "rollback complete"
 }
 
