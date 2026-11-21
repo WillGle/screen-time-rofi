@@ -103,13 +103,13 @@ $ cargo test --locked
 0 failed
 
 $ cargo run -- --version
-screen-time 0.1.0
+screen-time 0.2.0
 
 $ shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh
 SHELLCHECK_OK
 
 $ nix build .#
-.../result/bin/screen-time --version -> screen-time 0.1.0
+.../result/bin/screen-time --version -> screen-time 0.2.0
 
 $ nix flake check --no-build
 all checks passed!
