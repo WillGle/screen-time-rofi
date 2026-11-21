@@ -335,9 +335,17 @@ produces the same `SHA256SUMS` asset for both architectures.
   palette background, and emitted the static font.
 - **Palette change without restart:** a copied palette changed to accent
   `#B0E0A0` and power `#40C0D0`; the next render emitted those spans. The
-  daemon was not running and no cache was involved. The live wallpaper was not
-  changed during validation (that would alter the user's desktop); the change
-  was exercised through the same palette file contract.
+  daemon was not running and no cache was involved.
+- **Real wallpaper change:** after the copied-palette check, a generated
+  blue/red image was applied through the existing
+  `~/.config/theme/theme-apply --wallpaper ...` flow. The real palette changed
+  from base/mantle/text/muted/accent/power
+  `#101410/#1c211b/#e0e4db/#c2c9bd/#9fd49c/#9eb09a` to
+  `#1a1110/#271d1c/#f1dfdb/#d8c2be/#ffb4a6/#caa29b`. Reopening Rofi emitted
+  exactly the new accent/power/muted spans with no daemon restart. The original
+  wallpaper was then reapplied and the palette returned to the original values.
+  See [`screenshots/m9-main-original-palette.png`](screenshots/m9-main-original-palette.png)
+  and [`screenshots/m9-main-changed-palette.png`](screenshots/m9-main-changed-palette.png).
 - **Corrupt palette:** invalid JSON fell back to the valid `static.env`; an
   invalid color rejects the whole Matugen palette rather than half-applying it.
 - **Font/layout:** at 1280 px, sizes 12/14/16 produced ruler widths 116/68/68
@@ -361,11 +369,11 @@ produces the same `SHA256SUMS` asset for both architectures.
   the old 100 ms target. The renderer is still 9 ms; the additional cost is
   Rofi theme/font startup and the shell/theme setup. This is recorded as a
   remaining risk, not hidden by the earlier static-theme number.
-- **Wallpaper validation:** the actual desktop wallpaper was not changed (that
-  would alter the user's running session). A copied real palette was changed
-  to `#B0E0A0`/`#40C0D0` and the next render picked it up, which exercises the
-  same palette contract used by `theme-apply`. A visual wallpaper change
-  remains a manual check.
+- **Wallpaper validation:** the actual desktop wallpaper was changed through
+  the existing `theme-apply` flow, the popup was reopened, and section/app/power
+  colors changed on the next open. No `hyprland.conf` parsing is involved; the
+  shared inputs are the generated Matugen palette and `static.env`. The original
+  wallpaper was restored after the check.
 
 Nix result: `result -> /nix/store/...-screen-time-0.2.1` with
 `bin/screen-time`, `bin/rofi-screen-time`,
