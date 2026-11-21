@@ -76,18 +76,18 @@ nix run . -- --version
 `flake.nix` builds the same binary with `rustPlatform.buildRustPackage` and
 installs the wrapper, theme, and unit under the package path.
 
-**Current limitation:** the flake does not yet provide a Home Manager/NixOS
-module. `nix profile install` does not wire the user service or Rofi entry.
-For now, Nix users can test the package; a declarative one-time install needs the
-planned `homeManagerModules.default`:
+Home Manager module:
 
 ```nix
 inputs.screen-time-rofi.url = "github:WillGle/screen-time-rofi";
+
 imports = [ inputs.screen-time-rofi.homeManagerModules.default ];
 services.screen-time.enable = true;
 ```
 
-Do not manage one installation with both Nix and `install.sh`.
+This installs the package, user service, and Rofi wrapper declaratively.
+`nix profile install` alone is still not a one-time install because it does not
+wire the service. Do not manage one installation with both Nix and `install.sh`.
 
 ## Use
 

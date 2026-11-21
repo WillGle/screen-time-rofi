@@ -5,14 +5,25 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
-        pkgs = import nixpkgs { inherit system; };
-      });
-    in {
-      packages = forAllSystems ({ pkgs }:
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems =
+        f:
+        nixpkgs.lib.genAttrs systems (
+          system:
+          f {
+            pkgs = import nixpkgs { inherit system; };
+          }
+        );
+    in
+    {
+      packages = forAllSystems (
+        { pkgs }:
         let
           lib = pkgs.lib;
           screen-time = pkgs.rustPlatform.buildRustPackage {
@@ -21,9 +32,16 @@
 
             src = lib.cleanSourceWith {
               src = lib.cleanSource ./.;
-              filter = path: type:
-                let name = baseNameOf path; in
-                !(lib.elem name [ "target" "dist" ".git" ]);
+              filter =
+                path: type:
+                let
+                  name = baseNameOf path;
+                in
+                !(lib.elem name [
+                  "target"
+                  "dist"
+                  ".git"
+                ]);
             };
 
             cargoLock.lockFile = ./Cargo.lock;
@@ -50,25 +68,75 @@
               platforms = systems;
             };
           };
-        in {
+        in
+        {
           default = screen-time;
           screen-time = screen-time;
-        });
+        }
+      );
 
-      devShells = forAllSystems ({ pkgs }: {
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            clippy
-            rustc
-            rustfmt
-            shellcheck
-          ];
+      devShells = forAllSystems (
+        { pkgs }: {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              cargo
+              clippy
+              rustc
+              rustfmt
+              shellcheck
+            ];
+          };
+        }
+      );
+
+      homeManagerModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          cfg = config.services.screen-time;
+        in
+        {
+          options.services.screen-time = {
+            enable = lib.mkEnableOption "the Screen Time tracker";
+
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              description = "The screen-time package to install.";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            home.packages = [ cfg.package ];
+
+            systemd.user.services.screen-time = {
+              Unit = {
+                Description = "Screen Time tracker";
+                After = [ "graphical-session.target" ];
+                PartOf = [ "graphical-session.target" ];
+              };
+
+              Service = {
+                ExecStart = "${cfg.package}/bin/screen-time daemon";
+                Restart = "always";
+                RestartSec = "2s";
+                StateDirectory = "screen-time";
+                RuntimeDirectory = "screen-time";
+              };
+
+              Install.WantedBy = [ "graphical-session.target" ];
+            };
+          };
         };
-      });
 
-      checks = forAllSystems ({ pkgs }: {
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      });
+      checks = forAllSystems (
+        { pkgs }: {
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        }
+      );
     };
 }

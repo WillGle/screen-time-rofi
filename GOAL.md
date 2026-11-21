@@ -275,6 +275,17 @@ next Rofi open without daemon restart; a font change updates the app font.
 Exit: Matugen/font sync validated on the device; no leftovers; report includes
 measurements and screenshots/golden diffs.
 
+### M10 — Home Manager module (complete)
+
+- Added `homeManagerModules.default` to `flake.nix`.
+- Options: `services.screen-time.enable`, `services.screen-time.package`.
+- Installs `home.packages` and the `screen-time.service` user unit with
+  `StateDirectory`/`RuntimeDirectory`.
+- Verified with a temporary Home Manager flake: `ExecStart` resolves to the
+  package binary and `WantedBy = [ "graphical-session.target" ]`.
+- README and `docs/GITHUB_INSTALLER.md` updated; `nix profile install` remains
+  non-declarative.
+
 ## 4. Git protocol
 
 - Commit at each milestone with conventional messages.
