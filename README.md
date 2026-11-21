@@ -68,12 +68,26 @@ bash install.sh --tarball dist/screen-time-x86_64-linux.tar.gz --sha256 <hex>
 ```bash
 nix build .#
 ./result/bin/screen-time --version
+
+# or try without installing
+nix run . -- --version
 ```
 
 `flake.nix` builds the same binary with `rustPlatform.buildRustPackage` and
-installs the wrapper, theme, and unit under the package path. The installer and
-the Nix package use the same runtime layout; do not manage one installation
-with both.
+installs the wrapper, theme, and unit under the package path.
+
+**Current limitation:** the flake does not yet provide a Home Manager/NixOS
+module. `nix profile install` does not wire the user service or Rofi entry.
+For now, Nix users can test the package; a declarative one-time install needs the
+planned `homeManagerModules.default`:
+
+```nix
+inputs.screen-time-rofi.url = "github:WillGle/screen-time-rofi";
+imports = [ inputs.screen-time-rofi.homeManagerModules.default ];
+services.screen-time.enable = true;
+```
+
+Do not manage one installation with both Nix and `install.sh`.
 
 ## Use
 

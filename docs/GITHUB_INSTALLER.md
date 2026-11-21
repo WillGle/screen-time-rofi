@@ -298,14 +298,38 @@ screen-time --uninstall   # or: bash install.sh --uninstall
 - Keep `~/.local/state/screen-time/` by default; `--purge` deletes it.
 - Never delete user data without an explicit flag.
 
-## 9. NixOS coexistence
+## 9. NixOS / Nix users
 
-- On NixOS, prefer the flake/Home Manager module; the installer should detect
-  `/etc/NIXOS` and print that recommendation.
-- `--force` may be allowed for users who intentionally manage Rofi manually, but
-  it must not write into `/nix/store`.
-- The installer and module share the same binary/unit/theme layout so behavior is
-  identical.
+Current state:
+
+- The flake provides a package, dev shell, and checks:
+  ```bash
+  nix build github:WillGle/screen-time-rofi
+  nix run github:WillGle/screen-time-rofi -- --version
+  ```
+- There is **no Home Manager/NixOS module yet**. `nix profile install` gives the
+  binary, wrapper, theme, and unit under the store, but does not wire the user
+  service or Rofi entry automatically. That is not a one-time install.
+- Do not run `install.sh` and also manage the package through Nix; pick one
+  owner.
+
+Recommended future module:
+
+```nix
+inputs.screen-time-rofi.url = "github:WillGle/screen-time-rofi";
+
+# Home Manager
+imports = [ inputs.screen-time-rofi.homeManagerModules.default ];
+services.screen-time.enable = true;
+```
+
+The module should install the package and user unit, set the theme path, and
+share the same runtime layout as `install.sh`. Until it exists, Nix users should
+use the flake package only for testing, or use `install.sh` if they intentionally
+manage the app outside Nix.
+
+On NixOS, the installer should detect `/etc/NIXOS` and print this recommendation;
+it must never write into `/nix/store`.
 
 ## 10. Acceptance tests
 
