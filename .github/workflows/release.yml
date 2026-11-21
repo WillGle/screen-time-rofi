@@ -1,0 +1,98 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+      - name: Shell scripts
+        run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            experimental: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release --locked
+      - name: Package
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/systemd" dist
+          install -m 755 target/release/screen-time "$stage/bin/screen-time"
+          install -m 755 share/rofi-screen-time "$stage/bin/rofi-screen-time"
+          install -m 644 share/rofi/screen-time.rasi "$stage/share/rofi/screen-time.rasi"
+          install -m 644 systemd/screen-time.service "$stage/systemd/screen-time.service"
+          install -m 644 LICENSE README.md "$stage/"
+          asset="screen-time-${ARCH}-linux.tar.gz"
+          tar -czf "dist/$asset" -C "$stage" .
+          (cd dist && sha256sum "$asset" > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screen-time-${{ matrix.arch }}
+          path: |
+            dist/screen-time-${{ matrix.arch }}-linux.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Build release assets
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          mv dist/screen-time-*.tar.gz assets/
+          cp install.sh uninstall.sh assets/
+          cd assets
+          sha256sum screen-time-*.tar.gz install.sh uninstall.sh > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
