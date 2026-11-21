@@ -11,19 +11,19 @@
 M0–M9 are complete locally. Tracking, the live snapshot, SQLite persistence,
 Rofi rendering, section-role colors, Matugen/font sync, the installer
 lifecycle, Nix packaging, and the release workflow exist and are covered by
-tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.1.0`
-was the previous published release; the M8/M9 code is version 0.2.0. GitHub
-Actions runs on `main` passed the format/clippy/test/shellcheck job and both
-native build jobs (`ubuntu-latest` x86_64 and `ubuntu-24.04-arm` aarch64) for
-the M0–M7 tree. The v0.2.0 tag/release step is performed after this report
-commit; CI evidence is recorded below when it completes. No AArch64 artifact
-was produced locally; CI produced the previous one successfully.
+tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.2.0`
+is published with the M8/M9 code. GitHub Actions run `44920439259` passed the
+format/clippy/test/shellcheck job and both native build jobs (`ubuntu-latest`
+x86_64 and `ubuntu-24.04-arm` aarch64), then published the release. The earlier
+`v0.1.0` release remains available. No AArch64 artifact was produced locally;
+CI produced it successfully.
 
 ## 2. Milestone commits
 
 ```text
-1a2e99a feat: add section role colors and Matugen/font sync (M8)
+2c0ca38 docs: record M8/M9 commit hashes and revalidation
 d342a53 docs: record M8/M9 validation and screenshots (M9)
+1a2e99a feat: add section role colors and Matugen/font sync (M8)
 be6b882 docs: add M8-M9 section and Matugen theme sync goal
 6484a6e docs: record successful CI builds on main
 9f4e15a docs: finalize v1 report, measurements, and validation (M7)
@@ -295,14 +295,14 @@ The release tarball checksum matched the published `SHA256SUMS`.
 
 ## 7. Artifacts
 
-GitHub release `v0.1.0` assets:
+GitHub release `v0.2.0` assets (`https://github.com/WillGle/screen-time-rofi/releases/tag/v0.2.0`):
 
 ```text
-screen-time-x86_64-linux.tar.gz   2,669,932 bytes
-screen-time-aarch64-linux.tar.gz  2,525,341 bytes
+screen-time-x86_64-linux.tar.gz   2,826,776 bytes
+screen-time-aarch64-linux.tar.gz  2,673,533 bytes
 SHA256SUMS
-install.sh
-uninstall.sh
+install.sh                        19,537 bytes
+uninstall.sh                       3,141 bytes
 ```
 
 Local x86_64 release tarball:
@@ -350,6 +350,10 @@ produces the same `SHA256SUMS` asset for both architectures.
   `screen-time 0.1.0`; no artifacts beside the binary/theme/unit.
 - **No category palette/legend:** all inline colors are role colors from the
   resolved theme; app identity remains the row label.
+- **Published release:** downloaded `v0.2.0` `SHA256SUMS`, verified both
+  tarballs plus `install.sh`/`uninstall.sh` with `sha256sum -c`, installed in a
+  fresh temporary HOME, and ran `screen-time --version` → `0.2.0` and
+  `install.sh --check` → latest `v0.2.0`.
 - **Warm-open remeasurement:** the M8 wrapper generates a theme (9 ms) and
   queries the monitor width with `hyprctl` (26–32 ms). Direct Rofi startup with
   the real user theme/font under Xvfb measured ~185–260 ms end-to-end, above
@@ -393,8 +397,8 @@ artifacts are not committed.
 7. **AArch64 CI.** The workflow uses `ubuntu-24.04-arm`; the job is marked
    experimental so the x86_64 release is not blocked if that runner is
    unavailable. No AArch64 artifact was produced locally.
-8. **Release.** `v0.1.0` is published; `v0.2.0` is the M8/M9 release. Future
-   releases are tag-triggered; there is no auto-update daemon.
+8. **Release.** `v0.2.0` is published and installable from the release URL.
+   Future releases are tag-triggered; there is no auto-update daemon.
 9. **Fixed Rofi selection row.** The launcher selects absolute row 8, which is
    the first app row with the section layout. Changing the section/header count
    requires updating `-selected-row` in the shim.
