@@ -1,0 +1,14 @@
+[package]
+name = "screen-time"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Local, per-user screen-time tracker with a static Rofi day timeline"
+repository = "https://github.com/WillGle/screen-time-rofi"
+license = "MIT"
+
+[[bin]]
+name = "screen-time"
+path = "src/main.rs"
+
+[dependencies]
