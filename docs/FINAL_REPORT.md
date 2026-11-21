@@ -1,27 +1,29 @@
 # Screen Time v1 — Final Report
 
 - **Date:** 2026-11-21
-- **Repository:** `/mnt/vault/dev/screen-time-rofi` (moved from
-  `/tmp/opencode/screen-time-rofi` at the user's request)
+- **Repository:** `/home/will/src/screen-time-rofi`
 - **Branch:** `main`
-- **Version:** 0.1.0
+- **Version:** 0.2.0
 - **Platform:** Linux, Hyprland 0.55.4, Rofi 2.0.0, systemd user session
 
 ## 1. Status
 
-The v1 implementation is complete locally. Tracking, the live snapshot,
-SQLite persistence, Rofi rendering, the installer lifecycle, Nix packaging, and
-the release workflow exist and are covered by tests. `main` has been pushed to
-`https://github.com/WillGle/screen-time-rofi`, and tag `v0.1.0` was published.
-GitHub Actions run `44900005435` on `main` passed the
-format/clippy/test/shellcheck job and both native build jobs (`ubuntu-latest`
-x86_64 and `ubuntu-24.04-arm` aarch64). Tag run `44900514404` then published
-the release. No AArch64 artifact was produced locally; CI produced it
-successfully.
+M0–M9 are complete locally. Tracking, the live snapshot, SQLite persistence,
+Rofi rendering, section-role colors, Matugen/font sync, the installer
+lifecycle, Nix packaging, and the release workflow exist and are covered by
+tests. `main` is pushed to `https://github.com/WillGle/screen-time-rofi`. Tag `v0.1.0`
+was the previous published release; the M8/M9 code is version 0.2.0. GitHub
+Actions runs on `main` passed the format/clippy/test/shellcheck job and both
+native build jobs (`ubuntu-latest` x86_64 and `ubuntu-24.04-arm` aarch64) for
+the M0–M7 tree. The v0.2.0 tag/release step is performed after this report
+commit; CI evidence is recorded below when it completes. No AArch64 artifact
+was produced locally; CI produced the previous one successfully.
 
 ## 2. Milestone commits
 
 ```text
+3c71ec3 feat: add section role colors and Matugen/font sync (M8)
+be6b882 docs: add M8-M9 section and Matugen theme sync goal
 6484a6e docs: record successful CI builds on main
 9f4e15a docs: finalize v1 report, measurements, and validation (M7)
 55fe810 build: add Nix package and release workflow (M6)
@@ -94,9 +96,9 @@ Finished `dev` profile ... (no warnings)
 CLIPPY_OK
 
 $ cargo test --locked
-38 passed (unit tests)
+48 passed (unit tests, including config/theme/layout)
  1 passed (daemon_smoke)
- 8 passed (golden/protocol/stale)
+12 passed (golden, protocol, stale, theme integration, layout)
 0 failed
 
 $ cargo run -- --version
@@ -318,6 +320,36 @@ dist/SHA256SUMS
 The checksum is regenerated from the packaged file; the release workflow
 produces the same `SHA256SUMS` asset for both architectures.
 
+### M8/M9 validation
+
+- **Section layout:** golden main/detail now contain `▌ SCREEN TIME`, `▌ WHEN`,
+  `▌ APPS`, `▌ BURSTS`, and `▌ 7 DAY`; app rows use accent strips, POWER uses
+  power, and other uses muted. See
+  [`screenshots/m8-main.png`](screenshots/m8-main.png) and
+  [`screenshots/m8-detail.png`](screenshots/m8-detail.png).
+- **Real Matugen palette on this machine:** base `#101410`, accent `#9fd49c`,
+  power `#9eb09a`, muted `#c2c9bd`; static font `JetBrainsMono Nerd Font 10`.
+  `render --format rofi-theme` imported `~/.config/rofi/theme.rasi`, used the
+  palette background, and emitted the static font.
+- **Palette change without restart:** a copied palette changed to accent
+  `#B0E0A0` and power `#40C0D0`; the next render emitted those spans. The
+  daemon was not running and no cache was involved. The live wallpaper was not
+  changed during validation (that would alter the user's desktop); the change
+  was exercised through the same palette file contract.
+- **Corrupt palette:** invalid JSON fell back to the valid `static.env`; an
+  invalid color rejects the whole Matugen palette rather than half-applying it.
+- **Font/layout:** at 1280 px, sizes 12/14/16 produced ruler widths 116/68/68
+  columns; 14 and 16 selected the compact/top-four layout, and `layout.mode =
+  "full"` forced 116 columns back. Font changes need no daemon restart.
+- **Generated Rofi theme:** wrapper wrote
+  `$XDG_RUNTIME_DIR/screen-time/rofi-theme.rasi` (1287 bytes in the current
+  palette run) before launch; the installed standalone theme is fallback only.
+- **Installer update/rollback:** installed published v0.1.0, updated to the
+  local v0.2.0 tarball (`screen-time 0.2.0`), then rolled back to
+  `screen-time 0.1.0`; no artifacts beside the binary/theme/unit.
+- **No category palette/legend:** all inline colors are role colors from the
+  resolved theme; app identity remains the row label.
+
 Nix result: `result -> /nix/store/...-screen-time-0.1.0` with
 `bin/screen-time`, `bin/rofi-screen-time`,
 `share/rofi/screen-time.rasi`, and `systemd/screen-time.service`.
@@ -349,11 +381,11 @@ artifacts are not committed.
 7. **AArch64 CI.** The workflow uses `ubuntu-24.04-arm`; the job is marked
    experimental so the x86_64 release is not blocked if that runner is
    unavailable. No AArch64 artifact was produced locally.
-8. **Release.** `v0.1.0` is published and installable from the release URL.
-   Future releases are tag-triggered; there is no auto-update daemon.
-9. **Fixed Rofi selection row.** The launcher selects absolute row 6, which is
-   the first app row with the locked four-header layout. Changing the header
-   count requires updating `-selected-row` in the shim.
+8. **Release.** `v0.1.0` is published; `v0.2.0` is the M8/M9 release. Future
+   releases are tag-triggered; there is no auto-update daemon.
+9. **Fixed Rofi selection row.** The launcher selects absolute row 8, which is
+   the first app row with the section layout. Changing the section/header count
+   requires updating `-selected-row` in the shim.
 10. **Theme ownership.** A theme modified outside the installer is protected:
     updates require `--force`. The installer records the managed checksum in
     state.
@@ -366,7 +398,8 @@ artifacts are not committed.
       socket capture smoke test).
 - [x] SQLite WAL batches 60 s/100 events; raw 30 d; sessions 90 d; daily 365 d.
 - [x] `live.json` is atomic, stale-safe, and removed on clean shutdown.
-- [x] Rofi main screen matches the 96-column spec (golden and screenshot).
+- [x] Rofi main screen matches the 96-column spec with section markers and role
+      colors (golden and screenshots).
 - [x] App detail shows bursts and `sessions through`.
 - [x] No categories, titles, suspend/lock/display, socket, or live query.
 - [x] `install.sh` clean install/update/rollback/uninstall with no artifacts
@@ -374,4 +407,6 @@ artifacts are not committed.
 - [x] Nix build and release workflow exist; local Nix build and workflow YAML
       validation pass.
 - [x] README has install, update, rollback, uninstall, and troubleshooting.
+- [x] Matugen palette + `static.env` + config font sync work without daemon
+      restart.
 - [x] Final report includes raw measurements and artifacts.
