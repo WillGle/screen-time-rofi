@@ -1,13 +1,12 @@
+use crate::config::{Config, LayoutMode};
 use crate::sessions::display_name;
+use crate::theme::Theme;
 use crate::timeutil::{self, SLOT_COUNT};
 use crate::view::{DayView, DetailView, OtherRow, TOP_APPS};
 
 const PREFIX_WIDTH: usize = 20;
 const WIDE_TIMELINE: usize = 96;
 const NARROW_TIMELINE: usize = 48;
-const ACCENT: &str = "#89b4fa";
-const NEUTRAL: &str = "#bac2de";
-const OTHER_SHADE: &str = "#6c7086";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -22,11 +21,24 @@ struct Layout {
 }
 
 impl Layout {
-    fn from_env() -> Self {
+    fn from_theme(theme: &Theme) -> Self {
+        let session_count = cfg!(feature = "session-count")
+            || std::env::var("SCREEN_TIME_SESSION_COUNT").as_deref() == Ok("1");
+        let config = Config::load_default().unwrap_or_default();
+        let screen_width = std::env::var("SCREEN_TIME_SCREEN_WIDTH")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|width| *width >= 640)
+            .unwrap_or(1280);
+        let narrow = std::env::var("SCREEN_TIME_NARROW").as_deref() == Ok("1")
+            || match config.layout_mode() {
+                LayoutMode::Full => false,
+                LayoutMode::Compact => true,
+                LayoutMode::Auto => !fits_wide(theme.font_size, screen_width, session_count),
+            };
         Self {
-            narrow: std::env::var("SCREEN_TIME_NARROW").as_deref() == Ok("1"),
-            session_count: cfg!(feature = "session-count")
-                || std::env::var("SCREEN_TIME_SESSION_COUNT").as_deref() == Ok("1"),
+            narrow,
+            session_count,
         }
     }
 
@@ -59,8 +71,17 @@ impl Layout {
     }
 }
 
+/// Conservative monospace estimate at roughly 96 dpi. The Rofi window is 94%
+/// of the screen; 20 columns of labels plus the 96-column timeline must fit.
+fn fits_wide(font_size: u8, screen_width: u32, session_count: bool) -> bool {
+    let columns = 20 + if session_count { 2 } else { 0 } + WIDE_TIMELINE;
+    let char_px = f64::from(font_size) * (96.0 / 72.0) * 0.6;
+    columns as f64 * char_px + 28.0 <= f64::from(screen_width) * 0.94
+}
+
 pub fn render_main(view: &DayView, mode: OutputMode) -> String {
-    let layout = Layout::from_env();
+    let theme = Theme::load();
+    let layout = Layout::from_theme(&theme);
     let width = layout.screen_width();
     let mut out = String::new();
     if mode == OutputMode::Rofi {
@@ -73,7 +94,13 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
     let date_label = timeutil::format_date_label(view.date, view.today);
     emit(
         &mut out,
-        &pad_line(" SCREEN TIME", &date_label, width),
+        &pad_section(
+            "\u{258c} SCREEN TIME",
+            &date_label,
+            width,
+            &theme.accent,
+            mode,
+        ),
         RowMeta::NonSelectable,
         mode,
     );
@@ -112,9 +139,15 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         mode,
     );
 
-    let trend_line = trend_line(&view.trend, view.trend_avg);
+    let trend_line = trend_line(&view.trend, view.trend_avg, mode, &theme.power);
     emit(&mut out, &trend_line, RowMeta::NonSelectable, mode);
     emit(&mut out, "", RowMeta::NonSelectable, mode);
+    emit(
+        &mut out,
+        &section_line("WHEN", &theme.power, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
 
     let ruler = if layout.narrow {
         ruler_narrow()
@@ -128,7 +161,13 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         mode,
     );
 
-    let power_strip = strip(&view.power_slots, "▓", layout.slot_width(), mode, NEUTRAL);
+    let power_strip = strip(
+        &view.power_slots,
+        "▓",
+        layout.slot_width(),
+        mode,
+        &theme.power,
+    );
     emit(
         &mut out,
         &row_line(
@@ -143,11 +182,18 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         mode,
     );
 
+    emit(
+        &mut out,
+        &section_line("APPS", &theme.accent, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+
     let visible_rows = view.rows.iter().take(layout.top_apps());
     let mut any_rows = false;
     for row in visible_rows {
         any_rows = true;
-        let app_strip = strip(&row.slots, "█", layout.slot_width(), mode, ACCENT);
+        let app_strip = strip(&row.slots, "█", layout.slot_width(), mode, &theme.accent);
         let line = row_line(
             &layout,
             &row.name,
@@ -188,7 +234,7 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
             seconds: other_seconds,
             slots: slots_active_i64(&other_slots),
         };
-        let other_strip = strip(&other.slots, "▒", layout.slot_width(), mode, OTHER_SHADE);
+        let other_strip = strip(&other.slots, "▒", layout.slot_width(), mode, &theme.other);
         emit(
             &mut out,
             &other_line(&layout, &other, &other_strip),
@@ -213,7 +259,8 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
 }
 
 pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
-    let layout = Layout::from_env();
+    let theme = Theme::load();
+    let layout = Layout::from_theme(&theme);
     let width = layout.screen_width().max(96);
     let mut out = String::new();
     if mode == OutputMode::Rofi {
@@ -228,9 +275,20 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
         timeutil::format_duration(view.total_seconds),
         view.share_percent
     );
+    let app_name = if mode == OutputMode::Rofi {
+        escape_markup(&view.app)
+    } else {
+        view.app.clone()
+    };
     emit(
         &mut out,
-        &pad_line(&format!(" {}", escape_markup(&view.app)), &right, width),
+        &pad_section(
+            &format!("\u{258c} {app_name}"),
+            &right,
+            width,
+            &theme.accent,
+            mode,
+        ),
         RowMeta::NonSelectable,
         mode,
     );
@@ -263,7 +321,12 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
         );
         emit(&mut out, &format!(" {error}"), RowMeta::NonSelectable, mode);
     } else {
-        emit(&mut out, " Bursts", RowMeta::NonSelectable, mode);
+        emit(
+            &mut out,
+            &section_line("BURSTS", &theme.accent, mode),
+            RowMeta::NonSelectable,
+            mode,
+        );
         if view.sessions.is_empty() {
             emit(
                 &mut out,
@@ -300,11 +363,16 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
     emit(&mut out, "", RowMeta::NonSelectable, mode);
     emit(
         &mut out,
-        &trend_line(&view.trend, view.trend_avg),
+        &section_line("7 DAY", &theme.power, mode),
         RowMeta::NonSelectable,
         mode,
     );
-    emit(&mut out, "", RowMeta::NonSelectable, mode);
+    emit(
+        &mut out,
+        &detail_trend_line(&view.trend, view.trend_avg, mode, &theme.power),
+        RowMeta::NonSelectable,
+        mode,
+    );
     emit(
         &mut out,
         " ←/→ day   esc back",
@@ -358,11 +426,66 @@ fn escape_markup(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn marker(color: &str, mode: OutputMode) -> String {
+    if mode == OutputMode::Rofi {
+        format!("<span foreground=\"{color}\">\u{258c}</span>")
+    } else {
+        "\u{258c}".to_owned()
+    }
+}
+
+fn section_line(label: &str, color: &str, mode: OutputMode) -> String {
+    format!("{} {label}", marker(color, mode))
+}
+
+fn pad_section(
+    left_plain: &str,
+    right: &str,
+    width: usize,
+    color: &str,
+    mode: OutputMode,
+) -> String {
+    let line = pad_line(left_plain, right, width);
+    if mode == OutputMode::Rofi {
+        line.replacen('\u{258c}', &marker(color, mode), 1)
+    } else {
+        line
+    }
+}
+
 fn pad_line(left: &str, right: &str, width: usize) -> String {
-    let left_len = left.chars().count();
-    let right_len = right.chars().count();
+    let left_len = visible_len(left);
+    let right_len = visible_len(right);
     let padding = width.saturating_sub(left_len + right_len);
     format!("{left}{}{right}", " ".repeat(padding))
+}
+
+/// Display width for our small Pango markup subset. Tags add no columns and
+/// entities such as `&amp;` count as one character.
+fn visible_len(value: &str) -> usize {
+    let mut count = 0usize;
+    let mut chars = value.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '<' => {
+                for next in chars.by_ref() {
+                    if next == '>' {
+                        break;
+                    }
+                }
+            }
+            '&' => {
+                for next in chars.by_ref() {
+                    if next == ';' {
+                        break;
+                    }
+                }
+                count += 1;
+            }
+            _ => count += 1,
+        }
+    }
+    count
 }
 
 fn ruler_wide() -> String {
@@ -435,29 +558,65 @@ fn slots_active_i64(slots: &[i64; SLOT_COUNT]) -> [bool; SLOT_COUNT] {
     active
 }
 
-fn trend_line(trend: &[Option<i64>], average: Option<i64>) -> String {
-    let values: Vec<Option<i64>> = trend.to_vec();
-    if values.iter().all(Option::is_none) {
-        return " 7d no history".to_owned();
+fn sparkline(trend: &[Option<i64>]) -> Option<String> {
+    if trend.iter().all(Option::is_none) {
+        return None;
     }
-    let max = values.iter().filter_map(|value| *value).max().unwrap_or(0);
+    let max = trend.iter().filter_map(|value| *value).max().unwrap_or(0);
     let bars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let mut sparkline = String::new();
-    for value in values {
-        match value {
-            Some(seconds) if seconds > 0 && max > 0 => {
-                let index = ((seconds as f64 / max as f64) * 7.0).round() as usize;
-                sparkline.push(bars[index.min(7)]);
+    let mut value = String::new();
+    for seconds in trend {
+        match seconds {
+            Some(seconds) if *seconds > 0 && max > 0 => {
+                let index = ((*seconds as f64 / max as f64) * 7.0).round() as usize;
+                value.push(bars[index.min(7)]);
             }
-            _ => sparkline.push('·'),
+            _ => value.push('·'),
         }
     }
+    Some(value)
+}
+
+fn role_span(value: &str, color: &str, mode: OutputMode) -> String {
+    if mode == OutputMode::Rofi {
+        format!("<span foreground=\"{color}\">{value}</span>")
+    } else {
+        value.to_owned()
+    }
+}
+
+fn trend_line(
+    trend: &[Option<i64>],
+    average: Option<i64>,
+    mode: OutputMode,
+    color: &str,
+) -> String {
+    let Some(sparkline) = sparkline(trend) else {
+        return " 7d no history".to_owned();
+    };
+    let sparkline = role_span(&sparkline, color, mode);
     match average {
         Some(average) => format!(
             " 7d {sparkline}  avg {}",
             timeutil::format_duration(average)
         ),
         None => format!(" 7d {sparkline}"),
+    }
+}
+
+fn detail_trend_line(
+    trend: &[Option<i64>],
+    average: Option<i64>,
+    mode: OutputMode,
+    color: &str,
+) -> String {
+    let Some(sparkline) = sparkline(trend) else {
+        return " no history".to_owned();
+    };
+    let sparkline = role_span(&sparkline, color, mode);
+    match average {
+        Some(average) => format!(" {sparkline}   avg {}", timeutil::format_duration(average)),
+        None => format!(" {sparkline}"),
     }
 }
 

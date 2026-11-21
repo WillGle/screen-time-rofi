@@ -8,8 +8,9 @@ timeline. It answers four questions in one screen:
 - when was each app active?
 - when was the device powered on?
 
-**Status:** v1 implementation, Linux + Hyprland + Rofi + systemd user session.
-App-level only; no window titles, categories, cloud, socket, or animation.
+**Status:** v1 implementation with section-role colors and Matugen/font sync,
+Linux + Hyprland + Rofi + systemd user session. App-level only; no window
+titles, categories, cloud, socket, or animation.
 
 ## Install
 
@@ -111,10 +112,13 @@ Keys:
 
 There are no visible navigation buttons. The footer is the key map.
 
-The main screen follows the 96-column, 30-minute-slot UI spec. The `POWER` row
-uses `▓▓`; app activity uses `██`; the aggregated other row uses `▒▒`. The
-detail view shows total, share of day, session count, median, switches/hour,
-bursts, `sessions through HH:MM`, and a 7-day trend.
+The main screen follows the 96-column, 30-minute-slot UI spec. Sections are
+marked `▌ SCREEN TIME`, `▌ WHEN`, and `▌ APPS`; detail uses `▌ BURSTS` and
+`▌ 7 DAY`. The `POWER` row uses `▓▓`; app activity uses `██`; the aggregated
+other row uses `▒▒`. App activity and the summary/apps markers use the accent
+role; POWER, `WHEN`, and `7 DAY` use the power role; secondary/other data uses
+muted. The detail view shows total, share of day, session count, median,
+switches/hour, bursts, `sessions through HH:MM`, and a 7-day trend.
 
 ### The `×N` experiment
 
@@ -125,6 +129,65 @@ SCREEN_TIME_SESSION_COUNT=1 rofi-screen-time
 ```
 
 Or build with `--features session-count`. The default remains duration only.
+
+## Theme and font
+
+The app follows the existing Matugen pipeline; it does not parse
+`hyprland.conf` and does not create a second theme system. Optional config lives
+at:
+
+```text
+~/.config/screen-time/config.toml
+```
+
+```toml
+[theme]
+mode = "auto" # auto | matugen | static | config
+rofi_theme = "~/.config/rofi/theme.rasi"
+palette = "~/.config/theme/generated/palette.json"
+static_env = "~/.config/theme/static.env"
+# Optional explicit overrides (validated as #RRGGBB; never half-applied)
+# base = "#0d1117"
+# accent = "#58a6ff"
+
+[font]
+family = "JetBrainsMono Nerd Font"
+size = 12
+
+[layout]
+mode = "auto" # auto | full | compact
+```
+
+Resolution order is explicit config → Matugen palette → `static.env` →
+built-in high-contrast defaults. Every color is validated as `^#[0-9A-Fa-f]{6}$`;
+an invalid palette is ignored as a whole and the next fallback is used. The
+Matugen mapping is:
+
+| Role | Matugen path | Static fallback |
+|---|---|---|
+| base | `.colors.surface.default.color` | `THEME_STATIC_BASE` |
+| mantle | `.colors.surface_container.default.color` | `THEME_STATIC_MANTLE` |
+| text | `.colors.on_surface.default.color` | `THEME_STATIC_TEXT` |
+| muted | `.colors.on_surface_variant.default.color` | `THEME_STATIC_SUBTEXT` / `THEME_SIGNAL_MUTED` |
+| accent | `.colors.primary.default.color` | `THEME_STATIC_ACCENT` |
+| power | `.palettes.secondary["70"].color` | `THEME_STATIC_CYAN` |
+| other | muted | `THEME_STATIC_SUBTEXT` |
+
+Font priority is config `[font]` → `THEME_MONO_FONT` +
+`THEME_ROFI_FONT_SIZE` → JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"`
+switches to the 48-column/compact/four-row layout when the configured font no
+longer fits 96 columns; `full` and `compact` force a layout. `rofi-screen-time`
+queries the focused monitor width with `hyprctl monitors -j`; set
+`SCREEN_TIME_SCREEN_WIDTH` to override it.
+
+The palette, `static.env`, and font are read on every `render`. A wallpaper or
+font change applies on the next popup open; the daemon does not restart. The
+wrapper generates a complete Rofi theme in
+`$XDG_RUNTIME_DIR/screen-time/rofi-theme.rasi`, imports the configured/user Rofi
+theme for chrome if it exists, and passes the resolved font/colors to Rofi.
+`ROFI_THEME` overrides the base Rofi theme. The installed
+`share/rofi/screen-time.rasi` is only a fallback. The installer never overwrites
+`~/.config/screen-time/config.toml`.
 
 ## Update, rollback, uninstall
 
@@ -221,9 +284,12 @@ nix build .#
 ```
 
 The test suite includes unit tests for schema migration, session merge, bursts,
-open-interval math, retention, batching, atomic snapshots, stale handling, and
-Hyprland parsing; golden main/detail screens at 1280x800 and 1920x1080; and a
-daemon smoke test with a fake Hyprland socket and SIGTERM shutdown.
+open-interval math, retention, batching, atomic snapshots, stale handling,
+Hyprland parsing, config/theme resolution, font priority, and compact layout;
+golden main/detail screens at 1280x800 and 1920x1080 with section markers; and
+a daemon smoke test with a fake Hyprland socket and SIGTERM shutdown. Theme
+integration tests cover Matugen-over-static, corrupt-palette fallback, config
+overrides, generated Rofi themes, and live palette changes on the next render.
 
 ## Docs
 

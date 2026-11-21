@@ -12,17 +12,45 @@ if [ "${ROFI_RETV+x}" = x ]; then
     exec "$dir/screen-time" render --format rofi
 fi
 
-theme=${ROFI_THEME:-${SCREEN_TIME_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}}
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+theme_dir="${runtime_dir}/screen-time"
+theme_file="${theme_dir}/rofi-theme.rasi"
 theme_args=()
-if [ -r "$theme" ]; then
-    theme_args=(-theme "$theme")
+if mkdir -p "$theme_dir" 2>/dev/null; then
+    theme_tmp=$(mktemp "${theme_dir}/rofi-theme.XXXXXX" 2>/dev/null || true)
+    if [ -n "$theme_tmp" ]; then
+        if "$dir/screen-time" render --format rofi-theme >"$theme_tmp" 2>/dev/null \
+            && [ -s "$theme_tmp" ]; then
+            chmod 600 "$theme_tmp"
+            mv -f -- "$theme_tmp" "$theme_file"
+            theme_args=(-theme "$theme_file")
+        else
+            rm -f -- "$theme_tmp"
+        fi
+    fi
+fi
+if [ "${#theme_args[@]}" -eq 0 ]; then
+    theme=${ROFI_THEME:-${SCREEN_TIME_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}}
+    if [ -r "$theme" ]; then
+        theme_args=(-theme "$theme")
+    fi
+fi
+
+screen_width="${SCREEN_TIME_SCREEN_WIDTH:-}"
+if [ -z "$screen_width" ] && command -v hyprctl >/dev/null 2>&1; then
+    screen_width=$(hyprctl monitors -j 2>/dev/null \
+        | sed -n 's/.*"width"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+        | head -n1)
+fi
+if [ -n "$screen_width" ]; then
+    export SCREEN_TIME_SCREEN_WIDTH="$screen_width"
 fi
 
 exec rofi \
     -show screen-time \
     -modes "screen-time:$self" \
     -pid "${ROFI_PIDFILE:-${XDG_RUNTIME_DIR:-/tmp}/rofi-screen-time.pid}" \
-    -selected-row 6 \
+    -selected-row 8 \
     -normal-window \
     -kb-move-char-back "Alt+Left" \
     -kb-move-char-forward "Alt+Right" \

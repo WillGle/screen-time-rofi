@@ -2,6 +2,7 @@ use anyhow::Result;
 
 pub mod capture;
 pub mod cli;
+pub mod config;
 pub mod daemon;
 pub mod db;
 pub mod doctor;
@@ -11,6 +12,7 @@ pub mod paths;
 pub mod render;
 pub mod sessions;
 pub mod snapshot;
+pub mod theme;
 pub mod timeutil;
 pub mod ui;
 pub mod view;

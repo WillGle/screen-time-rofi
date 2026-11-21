@@ -1,5 +1,5 @@
 configuration {
-    font: "monospace 12";
+    font: "JetBrainsMono Nerd Font 12";
     show-icons: false;
     disable-history: true;
     hover-select: false;
@@ -8,15 +8,15 @@ configuration {
 }
 
 * {
-    background-color: #1e1e2e;
-    text-color: #cdd6f4;
-    border-color: #313244;
-    selected-normal-background: #313244;
-    selected-normal-foreground: #f5e0dc;
-    normal-background: #1e1e2e;
-    normal-foreground: #cdd6f4;
-    foreground: #cdd6f4;
-    background: #1e1e2e;
+    background-color: #0d1117;
+    text-color: #f0f6fc;
+    border-color: #161b22;
+    selected-normal-background: #161b22;
+    selected-normal-foreground: #f0f6fc;
+    normal-background: #0d1117;
+    normal-foreground: #f0f6fc;
+    foreground: #f0f6fc;
+    background: #0d1117;
     spacing: 0;
     margin: 0;
     padding: 0;
@@ -29,11 +29,11 @@ window {
     anchor: center;
     border: 0;
     padding: 14px;
-    background-color: #1e1e2e;
+    background-color: #0d1117;
 }
 
 mainbox {
-    background-color: #1e1e2e;
+    background-color: #0d1117;
     children: [ listview ];
     spacing: 0;
 }
@@ -43,9 +43,9 @@ inputbar {
 }
 
 listview {
-    background-color: #1e1e2e;
+    background-color: #0d1117;
     columns: 1;
-    lines: 14;
+    lines: 16;
     spacing: 0;
     scrollbar: false;
     cycle: true;
@@ -54,18 +54,18 @@ listview {
 
 element {
     padding: 2px 8px;
-    background-color: #1e1e2e;
-    text-color: #cdd6f4;
+    background-color: #0d1117;
+    text-color: #f0f6fc;
 }
 
 element selected {
-    background-color: #313244;
-    text-color: #f5e0dc;
+    background-color: #161b22;
+    text-color: #f0f6fc;
 }
 
 element-text {
     background-color: transparent;
     text-color: inherit;
-    font: "monospace 12";
+    font: "JetBrainsMono Nerd Font 12";
     vertical-align: 0.5;
 }

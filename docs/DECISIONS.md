@@ -149,10 +149,10 @@ Recorded conflicts and resolutions:
   `BackSpace` back from detail. `Esc` closes; Rofi owns that key. The default
   Left/Right/Backspace bindings are moved to Alt-modified keys so the required
   custom bindings do not conflict.
-- Rofi skips empty rows. The fixed 20-column prefix and four header lines put
-  the first selectable app row at absolute row 6; the launcher passes
-  `-selected-row 6` so navigation starts on data rather than a header. Script
-  mode keeps the selection across re-renders.
+- Rofi skips empty rows. With the M8 section layout the first selectable app
+  row is absolute row 8 (`SCREEN TIME`, summary lines, `WHEN`, ruler, POWER,
+  `APPS`); the launcher passes `-selected-row 8`. Before M8 it was row 6.
+  Script mode keeps the selection across re-renders.
 - UI state (viewed date and open detail) lives in
   `$XDG_RUNTIME_DIR/screen-time/ui.json`, is reset on the first script call, and
   is written atomically. It is ephemeral UI state, not tracked data.
@@ -193,3 +193,49 @@ Recorded conflicts and resolutions:
   supports `--prefix`, `--purge`, and `--dry-run`.
 - The installer refuses root, requires a systemd user manager, warns about
   missing Hyprland, and prints distro-neutral hints.
+
+## 10. M8 — section colors and theme sync
+
+- Added `src/config.rs` and `src/theme.rs`; rendering resolves the theme on
+  every invocation, never in the daemon. A palette/font change is visible on the
+  next Rofi open with no service restart.
+- Config path is `$XDG_CONFIG_HOME/screen-time/config.toml` (default
+  `~/.config/screen-time/config.toml`). A missing file is valid. In addition to
+  the documented schema, optional `[theme]` color fields
+  (`base`, `mantle`, `text`, `muted`, `accent`, `power`, `other`) are accepted
+  so a user can pin a palette without Matugen. All explicit values are
+  validated; if any explicit color is invalid, the entire explicit color set is
+  ignored rather than half-applied.
+- Color source priority is: explicit config colors → Matugen palette →
+  `static.env` → built-in high-contrast palette. Matugen values are read from
+  the documented paths and all seven roles must validate, otherwise the whole
+  palette is discarded:
+  `surface.default`, `surface_container.default`, `on_surface.default`,
+  `on_surface_variant.default`, `primary.default`, and
+  `palettes.secondary["70"]`; `other` follows muted.
+- `static.env` values are the documented `THEME_STATIC_*`,
+  `THEME_MONO_FONT`, and `THEME_ROFI_FONT_SIZE` keys. Single/double quotes and
+  an optional `export ` prefix are accepted. `THEME_SIGNAL_MUTED` is the
+  secondary muted fallback.
+- Font priority is config `[font]` → `static.env` → JetBrainsMono Nerd Font 12.
+  Invalid/empty families and sizes outside 6–72 are ignored.
+- Section markers are `▌ SCREEN TIME`, `▌ WHEN`, `▌ APPS`, `▌ BURSTS`, and
+  `▌ 7 DAY`. Summary/apps/bursts markers use accent; WHEN/7 DAY use power;
+  other data uses muted; app strips use accent; POWER strips use power.
+- The Rofi wrapper generates a complete theme file at
+  `$XDG_RUNTIME_DIR/screen-time/rofi-theme.rasi` on every open. The generated
+  theme imports the configured/user `rofi_theme` (or `ROFI_THEME`) for chrome
+  when it exists, then overrides the app window/list rows/font with resolved
+  values. The installed standalone theme is only a fallback. Rofi itself still
+  receives concrete inline Pango colors for markers and strips.
+- Installed `share/rofi/screen-time.rasi` now uses the built-in high-contrast
+  colors and JetBrainsMono 12 instead of Catppuccin hardcoding.
+- `layout.mode = auto` estimates the monospace fit from the resolved font size,
+  a 94%-width window, the 20-column label prefix, and the 96/48-column strip.
+  It switches to 48 columns/top four when 96 columns do not fit; `full` and
+  `compact` override. `SCREEN_TIME_SCREEN_WIDTH` overrides the monitor width
+  (the wrapper obtains it from `hyprctl monitors -j`); the default for a plain
+  `render` is 1280. `SCREEN_TIME_NARROW=1` remains a test/debug force.
+- Rofi skips empty rows, so the taller section layout moves the first app row
+  from absolute row 6 to row 8. The launcher uses `-selected-row 8`; detail
+  still uses Backspace for back navigation.

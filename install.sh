@@ -400,7 +400,7 @@ do_uninstall() {
         systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
     rm -f -- "$BIN" "$WRAPPER" "$THEME" "$THEME_SHA_FILE" "$VERSION_FILE"
-    rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json"
+    rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json" "${RUNTIME_DIR}/rofi-theme.rasi"
     rmdir "$RUNTIME_DIR" >/dev/null 2>&1 || true
     rm -rf -- "$STATE_DIR/backups"
     rmdir "$(dirname "$THEME")" "$THEME_DIR" "$BIN_DIR" >/dev/null 2>&1 || true

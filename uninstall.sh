@@ -87,7 +87,7 @@ if [ "$NO_SERVICE" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
 fi
 rm -f -- "$BIN" "$WRAPPER" "$THEME" "$THEME_DIR/installed-version" \
     "$THEME_DIR/theme.sha256" "$STATE_DIR/theme.sha256" "$STATE_DIR/installed-version"
-rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json"
+rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json" "${RUNTIME_DIR}/rofi-theme.rasi"
 rmdir "$RUNTIME_DIR" >/dev/null 2>&1 || true
 rm -rf -- "$STATE_DIR/backups"
 rmdir "$THEME_DIR/rofi" "$THEME_DIR" "$BIN_DIR" >/dev/null 2>&1 || true

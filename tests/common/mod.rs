@@ -46,12 +46,25 @@ impl Fixture {
         self.render_env(args, &[])
     }
 
+    pub fn config_home(&self) -> PathBuf {
+        self.dir.path().join("config")
+    }
+
+    pub fn write_config(&self, text: &str) {
+        let path = self.config_home().join("screen-time").join("config.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
     pub fn render_env(&self, args: &[&str], extra_env: &[(&str, &str)]) -> String {
         let mut command = Command::new(env!("CARGO_BIN_EXE_screen-time"));
+        let config_home = self.dir.path().join("config");
+        std::fs::create_dir_all(&config_home).unwrap();
         command
             .args(args)
             .env("TZ", "UTC")
             .env("HOME", self.dir.path())
+            .env("XDG_CONFIG_HOME", config_home)
             .env("SCREEN_TIME_STATE_DIR", &self.paths.state_dir)
             .env("SCREEN_TIME_RUNTIME_DIR", &self.paths.runtime_dir)
             .env("SCREEN_TIME_NOW", NOW)
@@ -59,8 +72,10 @@ impl Fixture {
             .env("SCREEN_TIME_IGNORE_PID", "1")
             .env_remove("ROFI_RETV")
             .env_remove("ROFI_INFO")
+            .env_remove("ROFI_THEME")
             .env_remove("SCREEN_TIME_SESSION_COUNT")
-            .env_remove("SCREEN_TIME_NARROW");
+            .env_remove("SCREEN_TIME_NARROW")
+            .env_remove("SCREEN_TIME_SCREEN_WIDTH");
         for (key, value) in extra_env {
             command.env(key, value);
         }

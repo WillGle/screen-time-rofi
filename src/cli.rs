@@ -32,7 +32,8 @@ pub struct DaemonArgs {}
 
 #[derive(Debug, Args)]
 pub struct RenderArgs {
-    /// Output format. Only `rofi` is supported.
+    /// Output format: `rofi` for the UI payload, `rofi-theme` for the resolved
+    /// generated theme file.
     #[arg(long, value_name = "FORMAT", default_value = "rofi")]
     pub format: String,
 
@@ -59,11 +60,15 @@ pub fn run() -> Result<()> {
 }
 
 fn run_render(args: RenderArgs) -> Result<()> {
-    if args.format != "rofi" {
+    if args.format != "rofi" && args.format != "rofi-theme" {
         bail!(
-            "unsupported format {:?}; only `rofi` is available",
+            "unsupported format {:?}; use `rofi` or `rofi-theme`",
             args.format
         );
+    }
+    if args.format == "rofi-theme" {
+        print!("{}", crate::theme::Theme::load().rofi_rasi());
+        return Ok(());
     }
     if let Some(now) = &args.now {
         // SAFETY: the renderer is single-threaded here. The test hook is an
