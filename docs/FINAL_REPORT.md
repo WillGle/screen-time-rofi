@@ -12,11 +12,12 @@
 The v1 implementation is complete locally. Tracking, the live snapshot,
 SQLite persistence, Rofi rendering, the installer lifecycle, Nix packaging, and
 the release workflow exist and are covered by tests. `main` has been pushed to
-`https://github.com/WillGle/screen-time-rofi`. A Git tag / GitHub release is a
-separate deliberate publish step and is not created automatically by a push.
-No AArch64 artifact was produced locally; the workflow builds it on a native
-Arm runner and marks that job experimental so an x86_64 release can still be
-published if the runner is unavailable.
+`https://github.com/WillGle/screen-time-rofi`. GitHub Actions run
+`44900005435` on `main` passed the format/clippy/test/shellcheck job and both
+native build jobs (`ubuntu-latest` x86_64 and `ubuntu-24.04-arm` aarch64). The
+release job was correctly skipped because the push was not a tag. A Git tag /
+GitHub release is a separate deliberate publish step, not an automatic push
+action. No AArch64 artifact was produced locally; CI produced it successfully.
 
 ## 2. Milestone commits
 
