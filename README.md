@@ -15,6 +15,8 @@ App-level only; no window titles, categories, cloud, socket, or animation.
 
 ### From a GitHub release
 
+Once a release is published:
+
 ```bash
 curl -fsSLO https://github.com/WillGle/screen-time-rofi/releases/latest/download/install.sh
 less install.sh

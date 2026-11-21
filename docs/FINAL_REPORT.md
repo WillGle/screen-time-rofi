@@ -11,9 +11,9 @@
 
 The v1 implementation is complete locally. Tracking, the live snapshot,
 SQLite persistence, Rofi rendering, the installer lifecycle, Nix packaging, and
-the release workflow exist and are covered by tests. The only external actions
-not completed are pushing to GitHub and publishing a GitHub release, because
-this environment has no GitHub credentials (`gh auth status`: not logged in).
+the release workflow exist and are covered by tests. `main` has been pushed to
+`https://github.com/WillGle/screen-time-rofi`. A Git tag / GitHub release is a
+separate deliberate publish step and is not created automatically by a push.
 No AArch64 artifact was produced locally; the workflow builds it on a native
 Arm runner and marks that job experimental so an x86_64 release can still be
 published if the runner is unavailable.
@@ -21,6 +21,7 @@ published if the runner is unavailable.
 ## 2. Milestone commits
 
 ```text
+9f4e15a docs: finalize v1 report, measurements, and validation (M7)
 55fe810 build: add Nix package and release workflow (M6)
 b745692 feat: add installer lifecycle and release packaging (M5)
 63438b2 feat: add Rofi theme, launcher shim, and key navigation (M4)
@@ -281,6 +282,7 @@ dist/screen-time-x86_64-linux.tar.gz
   LICENSE
   README.md
 dist/SHA256SUMS
+  e95a3e197bf73ff8a8625d8566d68d3899c89e87aac4fd2be2aef1362993b69c  screen-time-x86_64-linux.tar.gz
 ```
 
 Nix result: `result -> /nix/store/...-screen-time-0.1.0` with
@@ -314,9 +316,9 @@ artifacts are not committed.
 7. **AArch64 CI.** The workflow uses `ubuntu-24.04-arm`; the job is marked
    experimental so the x86_64 release is not blocked if that runner is
    unavailable. No AArch64 artifact was produced locally.
-8. **No GitHub push/release.** The environment has no GitHub credentials.
-   Local commits and artifacts are complete; `git push` and a tag-triggered
-   release remain external actions.
+8. **Release publish is a tag step.** `main` is pushed; no tag/release was
+   created during the measured run. Creating `v0.1.0` triggers the release
+   workflow. Credentials for a direct `gh release` call were not configured.
 9. **Fixed Rofi selection row.** The launcher selects absolute row 6, which is
    the first app row with the locked four-header layout. Changing the header
    count requires updating `-selected-row` in the shim.
