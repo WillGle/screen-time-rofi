@@ -192,8 +192,33 @@ fn config_font_size_auto_compacts_and_full_overrides() {
         .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
         .expect("ruler");
     assert_eq!(ruler.chars().count(), 68, "compact ruler: {ruler:?}");
+    assert_eq!(
+        compact
+            .lines()
+            .filter(|line| line.contains('█') && !line.trim_start().starts_with("7d"))
+            .count(),
+        4,
+        "compact must show four app rows: {compact}"
+    );
     let theme = fixture.render(&["render", "--format", "rofi-theme"]);
     assert!(theme.contains("Big Mono 16"), "{theme}");
+
+    let wide = fixture.render_env(
+        &["render", "--format", "rofi"],
+        &[("SCREEN_TIME_SCREEN_WIDTH", "1920")],
+    );
+    let ruler = wide
+        .lines()
+        .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
+        .expect("ruler");
+    assert_eq!(ruler.chars().count(), 116, "1920 ruler: {ruler:?}");
+    assert_eq!(
+        wide.lines()
+            .filter(|line| line.contains('█') && !line.trim_start().starts_with("7d"))
+            .count(),
+        5,
+        "1920 must show five app rows: {wide}"
+    );
 
     fixture.write_config("[font]\nfamily = \"Big Mono\"\nsize = 16\n[layout]\nmode = \"full\"\n");
     let full = fixture.render(&["render", "--format", "rofi"]);
