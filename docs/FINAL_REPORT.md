@@ -355,8 +355,11 @@ produces the same `SHA256SUMS` asset for both architectures.
   `$XDG_RUNTIME_DIR/screen-time/rofi-theme.rasi` (1287 bytes in the current
   palette run) before launch; the installed standalone theme is fallback only.
 - **Installer update/rollback:** installed published v0.1.0, updated to the
-  local v0.2.0 tarball (`screen-time 0.2.0`), then rolled back to
-  `screen-time 0.1.0`; no artifacts beside the binary/theme/unit.
+  local v0.2.1 tarball (`screen-time 0.2.1`), then rolled back to
+  `screen-time 0.1.0`; the rollback removed its used backup, a second update
+  kept exactly one backup, and `--uninstall` left no installed files or staging
+  directories while keeping state. No artifacts remained beside the
+  binary/theme/unit.
 - **No category palette/legend:** all inline colors are role colors from the
   resolved theme; app identity remains the row label.
 - **Published release:** downloaded `v0.2.1` `SHA256SUMS`, verified both
