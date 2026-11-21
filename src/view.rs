@@ -210,11 +210,12 @@ pub fn load_main(paths: &Paths, date: NaiveDate, now: DateTime<Local>) -> Result
         let current_slot = timeutil::slot_index(now_ts);
         if let Some(db) = db.as_ref() {
             let mut samples = Vec::new();
-            for prior in timeutil::week_dates(date, 7)
-                .into_iter()
-                .filter(|prior| *prior < date)
-            {
-                if let Ok(seconds) = db.seconds_before_slot(prior, current_slot) {
+            let dates = timeutil::week_dates(date, 7);
+            for (index, prior) in dates.iter().enumerate() {
+                if *prior >= date || trend.get(index).copied().flatten().is_none() {
+                    continue;
+                }
+                if let Ok(seconds) = db.seconds_before_slot(*prior, current_slot) {
                     samples.push(seconds);
                 }
             }
