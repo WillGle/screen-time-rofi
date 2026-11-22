@@ -1079,21 +1079,21 @@ mod tests {
     }
 
     #[test]
-    fn app_timeline_is_paginated_five_rows_at_a_time() {
+    fn app_timeline_is_paginated_four_rows_at_a_time() {
         let theme = Theme::resolve(&Config::default());
         let mut view = sample_view_with_rows(8);
 
         view.page = 0;
         let first = render_main_with_theme(&view, OutputMode::Rofi, &theme);
-        for index in 1..=5 {
+        for index in 1..=4 {
             assert!(
                 first.contains(&format!("App{index}")),
                 "page 1 missing App{index}"
             );
         }
-        assert!(!first.contains("App6"));
-        assert!(first.contains("apps 1-5 of 8"));
-        assert_eq!(list_lines(&first), 15);
+        assert!(!first.contains("App5"));
+        assert!(first.contains("apps 1-4 of 8"));
+        assert_eq!(list_lines(&first), 14);
 
         view.page = 1;
         let second = render_main_with_theme(&view, OutputMode::Rofi, &theme);
@@ -1102,14 +1102,14 @@ mod tests {
             1,
             "page 2 must not repeat the first row"
         );
-        for index in 6..=8 {
+        for index in 5..=8 {
             assert!(
                 second.contains(&format!("App{index}")),
                 "page 2 missing App{index}"
             );
         }
-        assert!(second.contains("apps 6-8 of 8"));
-        assert_eq!(list_lines(&second), 15, "page height stays stable");
+        assert!(second.contains("apps 5-8 of 8"));
+        assert_eq!(list_lines(&second), 14, "page height stays stable");
     }
 
     #[test]

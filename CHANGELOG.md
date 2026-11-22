@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Reduce the app-timeline page to four rows so the popup never clips the
+  fifth app row.
+
 ## 0.4.2
 
 - Normalize legacy system WM_CLASS names to readable labels (for example
