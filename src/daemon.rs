@@ -102,16 +102,19 @@ pub fn run() -> Result<()> {
         match rx.recv_timeout(Duration::from_secs(timeout)) {
             Ok(Event::Shutdown) => break,
             Ok(Event::Focus(app)) => {
+                let now_ts = timeutil::now().timestamp();
                 tracker.ensure_day(&paths, &mut db, now_ts)?;
                 let changed = tracker.on_focus(app, now_ts);
                 tracker.after_event(&paths, &mut db, now_ts, changed)?;
             }
             Ok(Event::Idle(idle)) => {
+                let now_ts = timeutil::now().timestamp();
                 tracker.ensure_day(&paths, &mut db, now_ts)?;
                 let changed = tracker.on_idle(idle, now_ts);
                 tracker.after_event(&paths, &mut db, now_ts, changed)?;
             }
             Err(RecvTimeoutError::Timeout) => {
+                let now_ts = timeutil::now().timestamp();
                 tracker.tick(&paths, &mut db, now_ts)?;
             }
             Err(RecvTimeoutError::Disconnected) => {

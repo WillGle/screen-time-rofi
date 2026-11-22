@@ -147,6 +147,10 @@ fn daemon_captures_focus_switches_and_shuts_down_cleanly() {
         snapshot.open.as_ref().unwrap().app.as_str(),
         "Code" | "Firefox"
     ));
+    // Event timestamps are now sampled when an event is received, so the
+    // open interval must exist for a whole second before shutdown or its
+    // sub-second tail is legitimately discarded by second truncation.
+    thread::sleep(Duration::from_millis(1_100));
 
     // SIGTERM must flush the batch, close the power session, and remove the
     // ephemeral snapshot.
