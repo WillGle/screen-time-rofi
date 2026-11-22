@@ -206,6 +206,27 @@ fn recover_previous_power(db: &mut Database, boot_id: &str, now_ts: i64) -> Resu
     Ok(())
 }
 
+/// First-failure/changed-error/recovery logging. A local copy keeps this
+/// task independent of the listener backoff work.
+#[derive(Debug, Default)]
+struct RetryLog {
+    previous: Option<String>,
+}
+
+impl RetryLog {
+    fn should_log(&mut self, message: &str) -> bool {
+        if self.previous.as_deref() == Some(message) {
+            return false;
+        }
+        self.previous = Some(message.to_owned());
+        true
+    }
+
+    fn recovered(&mut self) -> bool {
+        self.previous.take().is_some()
+    }
+}
+
 struct OpenSession {
     app: String,
     start_ts: i64,
@@ -219,6 +240,7 @@ struct Tracker {
     last_focus: Option<String>,
     pending_events: Vec<EventRecord>,
     pending_sessions: Vec<Session>,
+    snapshot_error: RetryLog,
     last_commit_ts: i64,
     last_snapshot_ts: i64,
     boot_id: String,
@@ -243,6 +265,7 @@ impl Tracker {
             last_focus: None,
             pending_events: Vec::new(),
             pending_sessions: Vec::new(),
+            snapshot_error: RetryLog::default(),
             last_commit_ts,
             last_snapshot_ts: 0,
             boot_id,
@@ -552,10 +575,22 @@ impl Tracker {
 
     fn write_snapshot(&mut self, paths: &Paths, now_ts: i64) {
         let snapshot = self.snapshot(now_ts);
-        if let Err(error) = snapshot::write_atomic(&paths.live_path, &snapshot) {
-            eprintln!("screen-time: cannot write live snapshot: {error:#}");
-        } else {
-            self.last_snapshot_ts = now_ts;
+        match snapshot::write_atomic(&paths.live_path, &snapshot) {
+            Ok(()) => {
+                self.last_snapshot_ts = now_ts;
+                if self.snapshot_error.recovered() {
+                    eprintln!("screen-time: live snapshot writes recovered");
+                }
+            }
+            Err(error) => {
+                // Keep the heartbeat cadence after a failure; otherwise the
+                // deadline stays in the past and retries every second.
+                self.last_snapshot_ts = now_ts;
+                let message = format!("{error:#}");
+                if self.snapshot_error.should_log(&message) {
+                    eprintln!("screen-time: cannot write live snapshot: {message}");
+                }
+            }
         }
     }
 }
@@ -897,6 +932,48 @@ mod tests {
         };
         paths.ensure().unwrap();
         paths
+    }
+
+    #[test]
+    fn retry_log_suppresses_identical_errors_and_rearms() {
+        let mut log = RetryLog::default();
+        assert!(log.should_log("disk full"));
+        assert!(!log.should_log("disk full"));
+        assert!(log.should_log("read-only"));
+        assert!(log.recovered());
+        assert!(!log.recovered());
+        assert!(log.should_log("disk full"));
+    }
+
+    #[test]
+    fn failed_snapshot_writes_keep_the_heartbeat_cadence() {
+        let dir = tempdir().unwrap();
+        let blocker = dir.path().join("not-a-directory");
+        fs::write(&blocker, b"x").unwrap();
+        let paths = Paths {
+            state_dir: dir.path().to_path_buf(),
+            db_path: dir.path().join("screen-time.db"),
+            runtime_dir: blocker.clone(),
+            live_path: blocker.join("live.json"),
+            ui_state_path: dir.path().join("ui.json"),
+            backups_dir: dir.path().join("backups"),
+            migration_backups_dir: dir.path().join("migration-backups"),
+        };
+        let mut tracker = tracker();
+        let ts = base() + 12 * 3_600;
+
+        tracker.write_snapshot(&paths, ts);
+        assert_eq!(tracker.last_snapshot_ts, ts);
+        assert_eq!(tracker.next_deadline(ts), ts + HEARTBEAT_SECONDS);
+        tracker.write_snapshot(&paths, ts + 1);
+        assert_eq!(tracker.last_snapshot_ts, ts + 1);
+        assert!(!paths.live_path.exists());
+
+        let mut repaired = paths.clone();
+        repaired.live_path = dir.path().join("live.json");
+        tracker.write_snapshot(&repaired, ts + 2);
+        assert_eq!(tracker.last_snapshot_ts, ts + 2);
+        assert!(repaired.live_path.is_file());
     }
 
     #[test]
