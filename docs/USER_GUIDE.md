@@ -186,7 +186,7 @@ Keys:
 | `←` / `→` | Previous / next day (clamped at today) |
 | `↑` / `↓` | Select an app row |
 | `Enter` | Open the selected app detail |
-| `Esc` | Close, or back from detail |
+| `Esc` | Close the popup |
 | `Backspace` | Back from detail |
 | `T` | Today |
 | `R` | Re-read the live snapshot and SQLite |
@@ -266,13 +266,14 @@ presets in the same order.
 
 Matugen provides the window and panel surfaces, foreground text, primary accent,
 and secondary power color. App categories use a fixed color palette chosen for
-the lightness of the window. Foreground colors from either source are adjusted
-as needed to reach 4.5:1 against the window and panel before explicit overrides
-are applied.
+the lightness of the window. Matugen foreground colors are adjusted as needed to
+reach 4.5:1 against the window and panel before explicit overrides are applied.
+`static.env` and explicit `[theme]` values are used as written, so check contrast
+when you customize them.
 
 Font priority is config `[font]` → `THEME_MONO_FONT` (with
-`THEME_UI_FONT` as a secondary fallback) + `THEME_ROFI_FONT_SIZE` →
-JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"` switches to the
+`THEME_UI_FONT` as a secondary fallback) + `THEME_ROFI_FONT_SIZE` (sizes below 12
+are raised to 12) → JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"` switches to the
 48-column timeline when the 96-column timeline plus its labels and stats
 does not fit. `full` and `compact` force a timeline width. `rofi-screen-time` queries the
 focused monitor width with `hyprctl monitors -j`; set

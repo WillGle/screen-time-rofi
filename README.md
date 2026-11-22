@@ -15,6 +15,7 @@ the release installer as your desktop user:
 
 ```bash
 curl -fsSLO https://github.com/WillGle/screen-time-rofi/releases/latest/download/install.sh
+less install.sh
 bash install.sh
 ~/.local/bin/rofi-screen-time
 ```
@@ -36,7 +37,8 @@ for charts, sandbox benchmarks, and a comparison with ten Linux trackers.
 ## Use
 
 - `←` / `→` browse days, `T` returns to today, and `R` refreshes.
-- `↑` / `↓` selects an app, `Enter` opens its details, and `Esc` goes back or closes.
+- `↑` / `↓` selects an app, `Enter` opens its details, and `Backspace` returns.
+  `Esc` closes the popup.
 - `Alt+1` through `Alt+3` select and remember Nord, Solarized Light, or Gruvbox Dark.
   `Alt+4` clears the saved choice and restores the configured theme.
 
@@ -44,7 +46,7 @@ To set a default theme, edit `~/.config/screen-time/config.toml` and reopen Rofi
 
 ```toml
 [theme]
-mode = "nord" # auto | matugen | nord | solarized | gruvbox
+mode = "nord" # auto | matugen | static | config | nord | solarized | gruvbox
 ```
 
 [Developer docs](docs/README.md) · [MIT license](LICENSE)
