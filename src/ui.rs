@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, NaiveDate};
@@ -17,7 +18,6 @@ use crate::view;
 pub struct UiState {
     pub date: Option<String>,
     pub app: Option<String>,
-    pub theme: Option<String>,
 }
 
 pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Result<String> {
@@ -32,7 +32,6 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
         state = UiState {
             date: None,
             app: None,
-            theme: None,
         };
         if let Some(date) = &args.date {
             state.date = Some(date.clone());
@@ -78,25 +77,16 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             16 => {
                 // Uppercase R refresh: keep the viewed date.
             }
-            17..=20 => {
-                if let Some(request) = std::env::var_os("SCREEN_TIME_ROFI_THEME_REQUEST") {
-                    state.theme = match retv {
-                        17 => Some("nord".into()),
-                        18 => Some("solarized".into()),
-                        19 => Some("gruvbox".into()),
-                        _ => None,
-                    };
-                    write_state(paths, &state)?;
-                    fs::write(&request, b"reopen")?;
-                    return Ok(String::new());
-                }
-            }
+            17 => write_theme_choice(paths, Some("nord"))?,
+            18 => write_theme_choice(paths, Some("solarized"))?,
+            19 => write_theme_choice(paths, Some("gruvbox"))?,
+            20 => write_theme_choice(paths, None)?,
             _ => {}
         }
         write_state(paths, &state)?;
         // The popup height is determined on open. Reload it when changing
         // between the app list and the taller detail view.
-        if was_detail != state.app.is_some() {
+        if was_detail != state.app.is_some() || (17..=20).contains(&retv) {
             if let Some(request) = std::env::var_os("SCREEN_TIME_ROFI_THEME_REQUEST") {
                 fs::write(request, b"reopen")?;
                 return Ok(String::new());
@@ -110,7 +100,7 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
         .and_then(|value| timeutil::parse_date(value).ok())
         .unwrap_or(today)
         .min(today);
-    let theme = Theme::load_with_mode(state.theme.as_deref());
+    let theme = Theme::load_with_mode(read_theme_choice(paths).as_deref());
     let output = match state.app.as_deref() {
         Some(app) if !app.is_empty() => {
             let detail = view::load_detail(paths, date, app, now)?;
@@ -125,12 +115,32 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
 }
 
 pub(crate) fn launcher_theme() -> Result<Theme> {
-    if reopening() {
-        let paths = Paths::resolve()?;
-        let state = read_state(&paths)?;
-        Ok(Theme::load_with_mode(state.theme.as_deref()))
+    let paths = Paths::resolve()?;
+    Ok(Theme::load_with_mode(read_theme_choice(&paths).as_deref()))
+}
+
+const THEME_CHOICES: [&str; 3] = ["nord", "solarized", "gruvbox"];
+
+fn theme_choice_path(paths: &Paths) -> PathBuf {
+    paths.state_dir.join("theme-choice")
+}
+
+fn read_theme_choice(paths: &Paths) -> Option<String> {
+    let choice = fs::read_to_string(theme_choice_path(paths)).ok()?;
+    let choice = choice.trim();
+    THEME_CHOICES.contains(&choice).then(|| choice.to_owned())
+}
+
+fn write_theme_choice(paths: &Paths, choice: Option<&str>) -> Result<()> {
+    let path = theme_choice_path(paths);
+    if let Some(choice) = choice {
+        write_atomic(&path, choice.as_bytes())
     } else {
-        Ok(Theme::load())
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| format!("cannot remove {}", path.display())),
+        }
     }
 }
 
@@ -173,14 +183,16 @@ fn read_state(paths: &Paths) -> Result<UiState> {
 }
 
 fn write_state(paths: &Paths, state: &UiState) -> Result<()> {
-    if let Some(parent) = paths.ui_state_path.parent() {
+    let bytes = serde_json::to_vec(state).context("cannot serialize UI state")?;
+    write_atomic(&paths.ui_state_path, &bytes)
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-    let bytes = serde_json::to_vec(state).context("cannot serialize UI state")?;
-    let temp = paths
-        .ui_state_path
-        .with_file_name(format!(".ui.json.{}.tmp", std::process::id()));
+    let temp = path.with_extension(format!("{}.tmp", std::process::id()));
     let result = (|| -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
@@ -189,11 +201,10 @@ fn write_state(paths: &Paths, state: &UiState) -> Result<()> {
             .mode(0o600)
             .open(&temp)
             .with_context(|| format!("cannot create {}", temp.display()))?;
-        file.write_all(&bytes)?;
+        file.write_all(bytes)?;
         file.flush()?;
         drop(file);
-        fs::rename(&temp, &paths.ui_state_path)
-            .with_context(|| format!("cannot replace {}", paths.ui_state_path.display()))?;
+        fs::rename(&temp, path).with_context(|| format!("cannot replace {}", path.display()))?;
         Ok(())
     })();
     if result.is_err() {
@@ -217,7 +228,6 @@ mod tests {
         let mut state = UiState {
             date: Some("2026-11-21".to_owned()),
             app: None,
-            theme: None,
         };
         assert_eq!(shift_date(&state, today, 1), "2026-11-21");
         assert_eq!(shift_date(&state, today, -1), "2026-11-20");
