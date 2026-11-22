@@ -366,18 +366,19 @@ fn colors_from_matugen(path: &Path) -> Option<Colors> {
     )?;
     let accent = json_color(&value, &["colors", "primary", "default", "color"])?;
     let power = json_color(&value, &["palettes", "secondary", "70", "color"])?;
-    let light = contrast(0.0, luminance(&base)) >= contrast(1.0, luminance(&base));
+    let base_luminance = luminance(&base)?;
+    let light = contrast(0.0, base_luminance) >= contrast(1.0, base_luminance);
     let mut colors = if light {
         Colors::light()
     } else {
         Colors::builtin()
     };
-    let mut backgrounds = [luminance(&base), luminance(&mantle)];
+    let mut backgrounds = [base_luminance, luminance(&mantle)?];
     let endpoint = if light { 0 } else { 255 };
     if contrast(f64::from(endpoint) / 255.0, backgrounds[1]) < 4.5 {
         // A palette that mixes light and dark surfaces may have no common
         // readable foreground. Keep its base and use the matching preset panel.
-        backgrounds[1] = luminance(&colors.mantle);
+        backgrounds[1] = luminance(&colors.mantle)?;
     } else {
         colors.mantle = mantle;
     }
@@ -397,22 +398,40 @@ fn colors_from_matugen(path: &Path) -> Option<Colors> {
         &mut colors.communication,
         &mut colors.entertainment,
     ] {
-        if backgrounds
-            .iter()
-            .any(|&bg| contrast(luminance(color), bg) < 4.5)
-        {
+        let Some(lum) = luminance(color) else {
+            continue;
+        };
+        if backgrounds.iter().any(|&bg| contrast(lum, bg) < 4.5) {
             *color = readable_color(color, backgrounds, endpoint);
         }
     }
     Some(colors)
 }
 
-fn rgb(color: &str) -> [u8; 3] {
-    [1, 3, 5].map(|i| u8::from_str_radix(&color[i..i + 2], 16).unwrap())
+fn rgb(color: &str) -> Option<[u8; 3]> {
+    let bytes = color.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' {
+        return None;
+    }
+    let channel = |index: usize| {
+        let high = hex_digit(bytes[index])?;
+        let low = hex_digit(bytes[index + 1])?;
+        Some(high << 4 | low)
+    };
+    Some([channel(1)?, channel(3)?, channel(5)?])
 }
 
-fn luminance(color: &str) -> f64 {
-    let [r, g, b] = rgb(color).map(|channel| {
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn luminance(color: &str) -> Option<f64> {
+    let [r, g, b] = rgb(color)?.map(|channel| {
         let c = f64::from(channel) / 255.0;
         if c <= 0.04045 {
             c / 12.92
@@ -420,7 +439,7 @@ fn luminance(color: &str) -> f64 {
             ((c + 0.055) / 1.055).powf(2.4)
         }
     });
-    0.2126 * r + 0.7152 * g + 0.0722 * b
+    Some(0.2126 * r + 0.7152 * g + 0.0722 * b)
 }
 
 fn contrast(first: f64, second: f64) -> f64 {
@@ -428,12 +447,16 @@ fn contrast(first: f64, second: f64) -> f64 {
 }
 
 fn readable_color(color: &str, backgrounds: [f64; 2], endpoint: u8) -> String {
-    let rgb = rgb(color);
+    let Some(rgb) = rgb(color) else {
+        return color.to_owned();
+    };
     // Blend toward the readable endpoint in small steps to retain the hue.
     for step in 1..=20 {
         let [r, g, b] = rgb.map(|c| (u16::from(c) * (20 - step) + u16::from(endpoint) * step) / 20);
         let candidate = format!("#{r:02x}{g:02x}{b:02x}");
-        let lum = luminance(&candidate);
+        let Some(lum) = luminance(&candidate) else {
+            continue;
+        };
         if backgrounds.iter().all(|&bg| contrast(lum, bg) >= 4.5) {
             return candidate;
         }
@@ -521,28 +544,43 @@ fn apply_explicit_colors(colors: &mut Colors, config: &Config) {
         // Never half-apply an explicit palette.
         return;
     }
-    let mut values = values.iter();
+    let mut values = values.into_iter();
+    let mut next = || values.next();
     if supplied[0].is_some() {
-        colors.base = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.base = value.to_owned();
+        }
     }
     if supplied[1].is_some() {
-        colors.mantle = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.mantle = value.to_owned();
+        }
     }
     if supplied[2].is_some() {
-        colors.text = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.text = value.to_owned();
+        }
     }
     if supplied[3].is_some() {
-        colors.muted = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.muted = value.to_owned();
+        }
     }
     if supplied[4].is_some() {
-        colors.accent = (*values.next().unwrap()).to_owned();
-        colors.work.clone_from(&colors.accent);
+        if let Some(value) = next() {
+            colors.accent = value.to_owned();
+            colors.work.clone_from(&colors.accent);
+        }
     }
     if supplied[5].is_some() {
-        colors.power = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.power = value.to_owned();
+        }
     }
     if supplied[6].is_some() {
-        colors.other = (*values.next().unwrap()).to_owned();
+        if let Some(value) = next() {
+            colors.other = value.to_owned();
+        }
     }
     // `other` follows `muted` unless explicitly set.
     if supplied[3].is_some() && supplied[6].is_none() {
@@ -659,7 +697,10 @@ THEME_STATIC_CYAN='#33cccc'
         assert_eq!(theme.base, "#101010");
         assert_ne!(theme.accent, "#123456");
         assert_eq!(theme.power, "#00cccc");
-        let backgrounds = [luminance(&theme.base), luminance(&theme.mantle)];
+        let backgrounds = [
+            luminance(&theme.base).unwrap(),
+            luminance(&theme.mantle).unwrap(),
+        ];
         for color in [
             &theme.work,
             &theme.browser,
@@ -670,9 +711,9 @@ THEME_STATIC_CYAN='#33cccc'
             &theme.accent,
         ] {
             assert!(
-                backgrounds
-                    .iter()
-                    .all(|&bg| contrast(luminance(color), bg) >= 4.5),
+                backgrounds.iter().all(|&bg| {
+                    contrast(luminance(color).expect("valid theme color"), bg) >= 4.5
+                }),
                 "{color}"
             );
         }
@@ -788,5 +829,89 @@ THEME_STATIC_CYAN='#33cccc'
         assert!(!valid_color("#abcde"));
         assert!(!valid_color("abcdef"));
         assert!(!valid_color("#gggggg"));
+    }
+
+    #[test]
+    fn rgb_is_total_for_malformed_input() {
+        assert_eq!(rgb("#0000ff"), Some([0, 0, 255]));
+        assert_eq!(rgb("#ABCDEF"), Some([0xab, 0xcd, 0xef]));
+        for invalid in [
+            "",
+            "#fff",
+            "#GG0000",
+            "#000000ff",
+            "#00000",
+            "#0000000",
+            "0000ff",
+            "😀abc",
+            "😀#000000",
+            "é0000ff",
+        ] {
+            assert_eq!(rgb(invalid), None, "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn explicit_base_only_changes_base() {
+        let mut config = Config::default();
+        config.theme.base = Some("#101010".to_owned());
+        let mut colors = Colors::builtin();
+        let original = colors.clone();
+        apply_explicit_colors(&mut colors, &config);
+        assert_eq!(colors.base, "#101010");
+        assert_eq!(colors.mantle, original.mantle);
+        assert_eq!(colors.text, original.text);
+        assert_eq!(colors.muted, original.muted);
+        assert_eq!(colors.accent, original.accent);
+        assert_eq!(colors.power, original.power);
+        assert_eq!(colors.other, original.other);
+        assert_eq!(colors.work, original.work);
+    }
+
+    #[test]
+    fn explicit_other_does_not_follow_muted_unless_supplied() {
+        let mut config = Config::default();
+        config.theme.other = Some("#112233".to_owned());
+        let mut colors = Colors::builtin();
+        let original = colors.clone();
+        apply_explicit_colors(&mut colors, &config);
+        assert_eq!(colors.other, "#112233");
+        assert_eq!(colors.muted, original.muted);
+        assert_eq!(colors.accent, original.accent);
+    }
+
+    #[test]
+    fn explicit_muted_without_other_updates_both() {
+        let mut config = Config::default();
+        config.theme.muted = Some("#445566".to_owned());
+        let mut colors = Colors::builtin();
+        apply_explicit_colors(&mut colors, &config);
+        assert_eq!(colors.muted, "#445566");
+        assert_eq!(colors.other, "#445566");
+        assert_ne!(colors.accent, "#445566");
+    }
+
+    #[test]
+    fn explicit_accent_without_power_updates_work_only() {
+        let mut config = Config::default();
+        config.theme.accent = Some("#778899".to_owned());
+        let mut colors = Colors::builtin();
+        let original = colors.clone();
+        apply_explicit_colors(&mut colors, &config);
+        assert_eq!(colors.accent, "#778899");
+        assert_eq!(colors.work, "#778899");
+        assert_eq!(colors.power, original.power);
+        assert_eq!(colors.muted, original.muted);
+    }
+
+    #[test]
+    fn explicit_mixed_valid_and_invalid_palette_changes_nothing() {
+        let mut config = Config::default();
+        config.theme.base = Some("#123456".to_owned());
+        config.theme.accent = Some("not-a-color".to_owned());
+        let mut colors = Colors::builtin();
+        let original = colors.clone();
+        apply_explicit_colors(&mut colors, &config);
+        assert_eq!(colors, original);
     }
 }
