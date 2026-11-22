@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -86,6 +88,71 @@ pub struct RuntimeReport {
     pub rofi_available: bool,
     pub rofi_version: Option<String>,
     pub runtime_writable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture: Option<CaptureReport>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CaptureReport {
+    /// "ok", "mismatch", or "unknown".
+    pub status: String,
+    pub active_app: Option<String>,
+    pub tracked_app: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureStatus {
+    Ok,
+    Mismatch,
+    Unknown,
+}
+
+impl CaptureStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Mismatch => "mismatch",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct CaptureSample {
+    snapshot_ready: bool,
+    active_app: Option<String>,
+    tracked_app: Option<String>,
+}
+
+fn capture_decision(
+    hyprland_available: bool,
+    idle: Option<bool>,
+    sample: &CaptureSample,
+) -> CaptureStatus {
+    if !hyprland_available || idle != Some(false) || !sample.snapshot_ready {
+        return CaptureStatus::Unknown;
+    }
+    match (sample.active_app.as_deref(), sample.tracked_app.as_deref()) {
+        (Some(active), Some(tracked)) if active == tracked => CaptureStatus::Ok,
+        (Some(_), Some(_)) => CaptureStatus::Mismatch,
+        _ => CaptureStatus::Unknown,
+    }
+}
+
+/// A mismatch is only reported when a second sample confirms it. This tests
+/// the same decision over two injected samples; the caller owns the delay and
+/// re-read.
+fn confirm_capture(
+    hyprland_available: bool,
+    idle: Option<bool>,
+    first: &CaptureSample,
+    second: &CaptureSample,
+) -> CaptureStatus {
+    let first_status = capture_decision(hyprland_available, idle, first);
+    if first_status != CaptureStatus::Mismatch {
+        return first_status;
+    }
+    capture_decision(hyprland_available, idle, second)
 }
 
 pub fn run(options: &Options) -> Result<()> {
@@ -328,12 +395,17 @@ fn runtime_report(
         report.runtime_writable = Some(false);
     }
 
-    match capture::discover() {
+    let hyprland = capture::discover();
+    let mut active_app = None;
+    match &hyprland {
         Some(hypr) => {
             report.hyprland_available = true;
             report.hyprland_signature = Some(hypr.signature.clone());
             match capture::query_active_window(&hypr.command_socket) {
-                Ok(Some(app)) => report.active_app = Some(app),
+                Ok(Some(app)) => {
+                    active_app = Some(app.clone());
+                    report.active_app = Some(app);
+                }
                 Ok(None) => warnings.push("Hyprland reports no active app window".to_owned()),
                 Err(error) => warnings.push(format!("active-window query failed: {error:#}")),
             }
@@ -352,6 +424,13 @@ fn runtime_report(
                 .unwrap_or_else(|| "unknown error".to_owned())
         ));
     }
+    report.capture = Some(capture_report(
+        paths,
+        hyprland.as_ref(),
+        idle_probe.idle,
+        active_app,
+        warnings,
+    ));
 
     match Command::new("rofi").arg("-version").output() {
         Ok(output) if output.status.success() => {
@@ -363,6 +442,63 @@ fn runtime_report(
         Err(_) => warnings.push("rofi is not installed or not in PATH".to_owned()),
     }
     report
+}
+
+fn capture_report(
+    paths: &Paths,
+    hyprland: Option<&capture::HyprlandPaths>,
+    idle: Option<bool>,
+    first_active: Option<String>,
+    warnings: &mut Vec<String>,
+) -> CaptureReport {
+    let first_sample = capture_sample(paths, first_active);
+    let first_status = capture_decision(hyprland.is_some(), idle, &first_sample);
+    let (status, sample) = if first_status == CaptureStatus::Mismatch {
+        // Give the daemon one second to persist the focus change before
+        // declaring it stuck.
+        thread::sleep(Duration::from_secs(1));
+        let active = hyprland.and_then(|hypr| {
+            capture::query_active_window(&hypr.command_socket)
+                .ok()
+                .flatten()
+        });
+        let second_sample = capture_sample(paths, active);
+        let status = confirm_capture(hyprland.is_some(), idle, &first_sample, &second_sample);
+        (status, second_sample)
+    } else {
+        (first_status, first_sample)
+    };
+    if status == CaptureStatus::Mismatch {
+        if let (Some(active), Some(tracked)) = (&sample.active_app, &sample.tracked_app) {
+            warnings.push(format!(
+                "daemon is not following Hyprland focus (active \"{active}\", tracked \"{tracked}\"); check journalctl --user -u screen-time"
+            ));
+        }
+    }
+    CaptureReport {
+        status: status.as_str().to_owned(),
+        active_app: sample.active_app,
+        tracked_app: sample.tracked_app,
+    }
+}
+
+fn capture_sample(paths: &Paths, active_app: Option<String>) -> CaptureSample {
+    let boot_id = paths::boot_id();
+    let live = snapshot::read(&paths.live_path).ok().flatten();
+    let tracked_app = live
+        .as_ref()
+        .and_then(|snapshot| snapshot.open.as_ref().map(|open| open.app.clone()));
+    let now_ts = timeutil::now().timestamp();
+    let snapshot_ready = live.as_ref().is_some_and(|snapshot| {
+        snapshot.boot_id == boot_id
+            && paths::pid_alive(snapshot.pid)
+            && !snapshot.is_stale(now_ts, &boot_id)
+    });
+    CaptureSample {
+        snapshot_ready,
+        active_app,
+        tracked_app,
+    }
 }
 
 fn check_writable(path: &Path, failures: &mut Vec<String>) -> bool {
@@ -469,4 +605,98 @@ fn print_text(report: &DoctorReport) {
 /// Recursively measure a directory. Kept public for restore drills and tests.
 pub fn dir_size(path: &Path) -> u64 {
     directory_size(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(active: Option<&str>, tracked: Option<&str>) -> CaptureSample {
+        CaptureSample {
+            snapshot_ready: true,
+            active_app: active.map(str::to_owned),
+            tracked_app: tracked.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn capture_decision_skips_without_enough_evidence() {
+        let matching = sample(Some("Code"), Some("Code"));
+        assert_eq!(
+            capture_decision(false, Some(false), &matching),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            capture_decision(true, Some(true), &matching),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            capture_decision(true, None, &matching),
+            CaptureStatus::Unknown
+        );
+        let mut stale = sample(Some("Code"), Some("Code"));
+        stale.snapshot_ready = false;
+        assert_eq!(
+            capture_decision(true, Some(false), &stale),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            capture_decision(true, Some(false), &sample(None, Some("Code"))),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            capture_decision(true, Some(false), &sample(Some("Code"), None)),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            capture_decision(true, Some(false), &sample(None, None)),
+            CaptureStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn capture_decision_matches_or_flags_focus() {
+        assert_eq!(
+            capture_decision(true, Some(false), &sample(Some("Code"), Some("Code"))),
+            CaptureStatus::Ok
+        );
+        assert_eq!(
+            capture_decision(true, Some(false), &sample(Some("Firefox"), Some("Code"))),
+            CaptureStatus::Mismatch
+        );
+    }
+
+    #[test]
+    fn mismatch_is_reported_only_when_the_second_sample_confirms_it() {
+        let first = sample(Some("Firefox"), Some("Code"));
+        let resolved = sample(Some("Firefox"), Some("Firefox"));
+        let still_mismatched = sample(Some("Firefox"), Some("Code"));
+        let unknown = sample(None, Some("Code"));
+        assert_eq!(
+            confirm_capture(true, Some(false), &first, &resolved),
+            CaptureStatus::Ok
+        );
+        assert_eq!(
+            confirm_capture(true, Some(false), &first, &still_mismatched),
+            CaptureStatus::Mismatch
+        );
+        assert_eq!(
+            confirm_capture(true, Some(false), &first, &unknown),
+            CaptureStatus::Unknown
+        );
+        assert_eq!(
+            confirm_capture(true, Some(false), &resolved, &still_mismatched),
+            CaptureStatus::Ok,
+            "an already-matching first sample needs no confirmation"
+        );
+    }
+
+    #[test]
+    fn runtime_report_omits_capture_when_not_checked() {
+        let value = serde_json::to_value(RuntimeReport::default()).unwrap();
+        assert!(value.get("capture").is_none());
+        assert_eq!(CaptureStatus::Ok.as_str(), "ok");
+        assert_eq!(CaptureStatus::Mismatch.as_str(), "mismatch");
+        assert_eq!(CaptureStatus::Unknown.as_str(), "unknown");
+    }
 }

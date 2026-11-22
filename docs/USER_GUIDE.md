@@ -487,8 +487,11 @@ journalctl --user -u screen-time -n 100 --no-pager
 `doctor --json` reports the schema version, per-table counts, `quick_check`,
 retention policy, database/WAL/backup sizes, service state, snapshot freshness,
 and a data fingerprint (`counts`, total session seconds, app keys, and app-key
-hash). The updater compares that fingerprint before and after installing. A
-consistent snapshot can be produced without `sqlite3`:
+hash). In full runtime mode it also adds an optional `capture` object with
+`status` (`ok`, `mismatch`, or `unknown`), `active_app`, and `tracked_app`; a
+confirmed mismatch is reported as a warning. The updater compares the
+fingerprint before and after installing. A consistent snapshot can be produced
+without `sqlite3`:
 
 ```bash
 screen-time snapshot --to /tmp/screen-time-snapshot --json

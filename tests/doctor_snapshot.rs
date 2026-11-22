@@ -57,6 +57,10 @@ fn doctor_json_has_a_stable_schema_and_no_runtime_mode() {
     assert_eq!(report["retention"]["enabled"], false);
     assert_eq!(report["retention"]["summary"], "disabled");
     assert!(report["runtime"].is_null());
+    assert!(
+        report["runtime"].get("capture").is_none(),
+        "capture is omitted with --no-runtime"
+    );
     assert!(report["counts"]["sessions"].as_i64().unwrap() > 0);
     assert!(report["fingerprint"]["session_seconds"].as_i64().unwrap() > 0);
     assert!(
@@ -70,6 +74,29 @@ fn doctor_json_has_a_stable_schema_and_no_runtime_mode() {
     assert!(report["sizes"]["update_backups_bytes"].is_u64());
     assert!(report["warnings"].is_array());
     assert!(report["failures"].is_array());
+}
+
+#[test]
+fn doctor_full_runtime_reports_capture_liveness() {
+    let fixture = Fixture::new();
+    let output = run(&fixture, &["doctor", "--json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = json(&output);
+    assert_eq!(report["mode"], "full");
+    // The fixture's live snapshot has no open interval, so no capture
+    // mismatch can be confirmed even when the host has Hyprland.
+    assert_eq!(report["runtime"]["capture"]["status"], "unknown");
+    assert!(
+        report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|warning| !warning.as_str().unwrap().contains("not following Hyprland"))
+    );
 }
 
 #[test]
