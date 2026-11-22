@@ -54,6 +54,9 @@ pub enum ThemeMode {
     Matugen,
     Static,
     Config,
+    Nord,
+    Solarized,
+    Gruvbox,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +136,9 @@ impl ThemeMode {
             "matugen" => Self::Matugen,
             "static" => Self::Static,
             "config" => Self::Config,
+            "nord" | "dark" => Self::Nord,
+            "solarized" | "light" => Self::Solarized,
+            "gruvbox" | "high-contrast" => Self::Gruvbox,
             _ => Self::Auto,
         }
     }

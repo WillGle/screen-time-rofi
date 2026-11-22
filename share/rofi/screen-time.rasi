@@ -8,6 +8,7 @@ configuration {
 }
 
 * {
+    font: "JetBrainsMono Nerd Font 12";
     background-color: #0d1117;
     text-color: #f0f6fc;
     border-color: #161b22;
@@ -23,19 +24,43 @@ configuration {
 }
 
 window {
-    width: 94%;
-    height: 55%;
+    width: calc( ( 144ch + 64px ) min 94% );
     location: center;
     anchor: center;
     border: 0;
-    padding: 14px;
+    padding: 20px;
     background-color: #0d1117;
 }
 
 mainbox {
     background-color: #0d1117;
-    children: [ listview ];
+    padding: 0;
+    children: [ message, listview ];
     spacing: 0;
+}
+
+message, textbox {
+    background-color: #0d1117;
+    text-color: #f0f6fc;
+    padding: 0px 5px;
+    border: 0;
+}
+
+textbox {
+    font: "JetBrainsMono Nerd Font 26";
+    markup: true;
+    vertical-align: 0.5;
+}
+
+element normal.active, element alternate.active, element selected.active {
+    background-color: #161b22;
+    border: 0;
+    border-radius: 0;
+}
+
+element selected.active {
+    border: 0px 0px 0px 2px;
+    border-color: #58a6ff;
 }
 
 inputbar {
@@ -45,15 +70,17 @@ inputbar {
 listview {
     background-color: #0d1117;
     columns: 1;
-    lines: 16;
+    lines: 24;
     spacing: 0;
     scrollbar: false;
     cycle: true;
-    dynamic: false;
+    dynamic: true;
+    fixed-height: false;
 }
 
 element {
-    padding: 2px 8px;
+    children: [ element-text ];
+    padding: 3px 10px;
     background-color: #0d1117;
     text-color: #f0f6fc;
 }

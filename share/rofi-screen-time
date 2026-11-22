@@ -12,6 +12,51 @@ if [ "${ROFI_RETV+x}" = x ]; then
     exec "$dir/screen-time" render --format rofi
 fi
 
+# Rofi uses logical coordinates. Convert the focused Hyprland monitor's
+# physical geometry through its scale before generating the theme/layout.
+if [ -z "${SCREEN_TIME_SCREEN_WIDTH:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+    monitor_geometry=$(hyprctl monitors -j 2>/dev/null | awk '
+        /[{]/ { depth++ }
+        /"width":[[:space:]]*/ {
+            value = $2; gsub(/,/, "", value); width = value
+        }
+        /"height":[[:space:]]*/ {
+            value = $2; gsub(/,/, "", value); height = value
+        }
+        /"scale":[[:space:]]*/ {
+            value = $2; gsub(/,/, "", value); scale = value
+        }
+        /"focused":[[:space:]]*true/ { focused = 1 }
+        /[}]/ {
+            depth--
+            if (depth == 0) {
+                if (width > 0 && height > 0 && scale > 0) {
+                    geometry = sprintf("%d %d", width / scale, height / scale)
+                    if (focused) {
+                        print geometry
+                        found = 1
+                        exit
+                    }
+                    if (!have_first) {
+                        first = geometry
+                        have_first = 1
+                    }
+                }
+                width = height = scale = ""
+                focused = 0
+            }
+        }
+        END {
+            if (!found && have_first) print first
+        }
+    ')
+    if [ -n "$monitor_geometry" ]; then
+        read -r monitor_width monitor_height <<<"$monitor_geometry"
+        export SCREEN_TIME_SCREEN_WIDTH="$monitor_width"
+        export SCREEN_TIME_SCREEN_HEIGHT="$monitor_height"
+    fi
+fi
+
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 theme_dir="${runtime_dir}/screen-time"
 theme_file="${theme_dir}/rofi-theme.rasi"
@@ -34,16 +79,6 @@ if [ "${#theme_args[@]}" -eq 0 ]; then
     if [ -r "$theme" ]; then
         theme_args=(-theme "$theme")
     fi
-fi
-
-screen_width="${SCREEN_TIME_SCREEN_WIDTH:-}"
-if [ -z "$screen_width" ] && command -v hyprctl >/dev/null 2>&1; then
-    screen_width=$(hyprctl monitors -j 2>/dev/null \
-        | sed -n 's/.*"width"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
-        | head -n1)
-fi
-if [ -n "$screen_width" ]; then
-    export SCREEN_TIME_SCREEN_WIDTH="$screen_width"
 fi
 
 exec rofi \

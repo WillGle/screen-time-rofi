@@ -9,7 +9,7 @@ use crate::sessions::{self, Burst, Session};
 use crate::snapshot;
 use crate::timeutil::{self, SLOT_COUNT};
 
-pub const TOP_APPS: usize = 5;
+pub const TOP_APPS: usize = 10;
 
 #[derive(Debug, Clone)]
 pub struct DayView {

@@ -17,10 +17,14 @@ pub struct Theme {
     pub muted: String,
     pub accent: String,
     pub power: String,
+    pub work: String,
+    pub browser: String,
     pub other: String,
     pub font_family: String,
     pub font_size: u8,
     pub rofi_theme: Option<PathBuf>,
+    pub communication: String,
+    pub entertainment: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,7 +35,11 @@ struct Colors {
     muted: String,
     accent: String,
     power: String,
+    work: String,
+    browser: String,
     other: String,
+    communication: String,
+    entertainment: String,
 }
 
 impl Theme {
@@ -56,27 +64,17 @@ impl Theme {
         static_env_path: &Path,
     ) -> Self {
         let mode = config.theme_mode();
-        let mut colors = Colors::builtin();
-
-        if matches!(mode, ThemeMode::Auto | ThemeMode::Matugen) {
-            if let Some(palette) = colors_from_matugen(palette_path) {
-                colors = palette;
-            } else if matches!(mode, ThemeMode::Auto | ThemeMode::Matugen) {
-                if let Some(static_colors) = colors_from_static(static_env_path) {
-                    colors = static_colors;
-                }
+        let mut colors = match mode {
+            ThemeMode::Auto | ThemeMode::Matugen => {
+                colors_from_matugen(palette_path).or_else(|| colors_from_static(static_env_path))
             }
+            ThemeMode::Static => colors_from_static(static_env_path),
+            ThemeMode::Nord => Some(Colors::nord()),
+            ThemeMode::Solarized => Some(Colors::solarized()),
+            ThemeMode::Gruvbox => Some(Colors::gruvbox()),
+            ThemeMode::Config => None,
         }
-        if mode == ThemeMode::Static {
-            if let Some(static_colors) = colors_from_static(static_env_path) {
-                colors = static_colors;
-            }
-        }
-        if mode == ThemeMode::Auto {
-            // Matugen and static were attempted above. A missing/invalid
-            // Matugen palette already fell through to static; a missing static
-            // file leaves the built-in colors.
-        }
+        .unwrap_or_else(Colors::builtin);
 
         apply_explicit_colors(&mut colors, config);
 
@@ -87,7 +85,7 @@ impl Theme {
                 font_family = family;
             }
             if let Some(size) = size {
-                font_size = size;
+                font_size = size.max(DEFAULT_SIZE);
             }
         }
         if let Some(family) = &config.font.family {
@@ -109,10 +107,14 @@ impl Theme {
             muted: colors.muted,
             accent: colors.accent,
             power: colors.power,
+            work: colors.work,
+            browser: colors.browser,
             other: colors.other,
             font_family,
             font_size,
             rofi_theme: chrome_theme_path(config, home),
+            communication: colors.communication,
+            entertainment: colors.entertainment,
         }
     }
 
@@ -125,10 +127,14 @@ impl Theme {
             muted: colors.muted,
             accent: colors.accent,
             power: colors.power,
+            work: colors.work,
+            browser: colors.browser,
             other: colors.other,
             font_family: DEFAULT_FAMILY.to_owned(),
             font_size: DEFAULT_SIZE,
             rofi_theme: None,
+            communication: colors.communication,
+            entertainment: colors.entertainment,
         }
     }
 
@@ -148,6 +154,7 @@ impl Theme {
             ));
         }
         let font = escape_rasi(&self.font());
+        let columns = crate::render::grid_columns(self);
         out.push_str(&format!(
             r#"configuration {{
     font: "{font}";
@@ -159,6 +166,7 @@ impl Theme {
 }}
 
 * {{
+    font: "{font}";
     background-color: {base};
     text-color: {text};
     border-color: {mantle};
@@ -174,19 +182,43 @@ impl Theme {
 }}
 
 window {{
-    width: 94%;
-    height: 55%;
+    width: calc( ( {columns}ch + 64px ) min 94% );
     location: center;
     anchor: center;
     border: 0;
-    padding: 14px;
+    padding: 20px;
     background-color: {base};
 }}
 
 mainbox {{
     background-color: {base};
-    children: [ listview ];
+    padding: 0;
+    children: [ message, listview ];
     spacing: 0;
+}}
+
+message, textbox {{
+    background-color: {base};
+    text-color: {text};
+    padding: 0px 5px;
+    border: 0;
+}}
+
+textbox {{
+    font: "{family} 26";
+    markup: true;
+    vertical-align: 0.5;
+}}
+
+element normal.active, element alternate.active, element selected.active {{
+    background-color: {mantle};
+    border: 0;
+    border-radius: 0;
+}}
+
+element selected.active {{
+    border: 0px 0px 0px 2px;
+    border-color: {accent};
 }}
 
 inputbar {{
@@ -196,15 +228,17 @@ inputbar {{
 listview {{
     background-color: {base};
     columns: 1;
-    lines: 16;
+    lines: 24;
     spacing: 0;
     scrollbar: false;
     cycle: true;
-    dynamic: false;
+    dynamic: true;
+    fixed-height: false;
 }}
 
 element {{
-    padding: 2px 8px;
+    children: [ element-text ];
+    padding: 3px 10px;
     background-color: {base};
     text-color: {text};
 }}
@@ -221,6 +255,8 @@ element-text {{
     vertical-align: 0.5;
 }}
 "#,
+            family = escape_rasi(&self.font_family),
+            accent = self.accent,
             base = self.base,
             mantle = self.mantle,
             text = self.text,
@@ -238,7 +274,75 @@ impl Colors {
             muted: "#8b949e".to_owned(),
             accent: "#58a6ff".to_owned(),
             power: "#39c5cf".to_owned(),
-            other: "#8b949e".to_owned(),
+            work: "#91d6a1".to_owned(),
+            browser: "#89b4fa".to_owned(),
+            other: "#a0a9b5".to_owned(),
+            communication: "#f9e2af".to_owned(),
+            entertainment: "#f38ba8".to_owned(),
+        }
+    }
+
+    fn light() -> Self {
+        Self {
+            base: "#faf8f4".into(),
+            mantle: "#ece8e0".into(),
+            text: "#231f20".into(),
+            muted: "#55505a".into(),
+            accent: "#25458b".into(),
+            power: "#3e5760".into(),
+            work: "#23623a".into(),
+            browser: "#1e5195".into(),
+            other: "#635a63".into(),
+            communication: "#834c09".into(),
+            entertainment: "#992755".into(),
+        }
+    }
+
+    fn nord() -> Self {
+        Self {
+            base: "#2e3440".into(),
+            mantle: "#3b4252".into(),
+            text: "#eceff4".into(),
+            muted: "#d8dee9".into(),
+            accent: "#88c0d0".into(),
+            power: "#d8dee9".into(),
+            work: "#a3be8c".into(),
+            browser: "#8fbcdb".into(),
+            other: "#e5e9f0".into(),
+            communication: "#ebcb8b".into(),
+            entertainment: "#dfacd0".into(),
+        }
+    }
+
+    fn solarized() -> Self {
+        Self {
+            base: "#fdf6e3".into(),
+            mantle: "#eee8d5".into(),
+            text: "#073642".into(),
+            muted: "#52676e".into(),
+            accent: "#00689d".into(),
+            power: "#52676e".into(),
+            work: "#516100".into(),
+            browser: "#00689d".into(),
+            other: "#58636a".into(),
+            communication: "#8d5c00".into(),
+            entertainment: "#a52e6f".into(),
+        }
+    }
+
+    fn gruvbox() -> Self {
+        Self {
+            base: "#1d2021".into(),
+            mantle: "#282828".into(),
+            text: "#fbf1c7".into(),
+            muted: "#d5c4a1".into(),
+            accent: "#fabd2f".into(),
+            power: "#d5c4a1".into(),
+            work: "#b8bb26".into(),
+            browser: "#83a598".into(),
+            other: "#bdae93".into(),
+            communication: "#fe8019".into(),
+            entertainment: "#d3869b".into(),
         }
     }
 }
@@ -255,15 +359,79 @@ fn colors_from_matugen(path: &Path) -> Option<Colors> {
     )?;
     let accent = json_color(&value, &["colors", "primary", "default", "color"])?;
     let power = json_color(&value, &["palettes", "secondary", "70", "color"])?;
-    Some(Colors {
-        base,
-        mantle,
-        text,
-        muted: muted.clone(),
-        accent,
-        power,
-        other: muted,
-    })
+    let light = contrast(0.0, luminance(&base)) >= contrast(1.0, luminance(&base));
+    let mut colors = if light {
+        Colors::light()
+    } else {
+        Colors::builtin()
+    };
+    let mut backgrounds = [luminance(&base), luminance(&mantle)];
+    let endpoint = if light { 0 } else { 255 };
+    if contrast(f64::from(endpoint) / 255.0, backgrounds[1]) < 4.5 {
+        // A palette that mixes light and dark surfaces may have no common
+        // readable foreground. Keep its base and use the matching preset panel.
+        backgrounds[1] = luminance(&colors.mantle);
+    } else {
+        colors.mantle = mantle;
+    }
+    colors.base = base;
+    colors.text = text;
+    colors.muted = muted;
+    colors.accent = accent;
+    colors.power = power;
+    for color in [
+        &mut colors.text,
+        &mut colors.muted,
+        &mut colors.accent,
+        &mut colors.power,
+        &mut colors.work,
+        &mut colors.browser,
+        &mut colors.other,
+        &mut colors.communication,
+        &mut colors.entertainment,
+    ] {
+        if backgrounds
+            .iter()
+            .any(|&bg| contrast(luminance(color), bg) < 4.5)
+        {
+            *color = readable_color(color, backgrounds, endpoint);
+        }
+    }
+    Some(colors)
+}
+
+fn rgb(color: &str) -> [u8; 3] {
+    [1, 3, 5].map(|i| u8::from_str_radix(&color[i..i + 2], 16).unwrap())
+}
+
+fn luminance(color: &str) -> f64 {
+    let [r, g, b] = rgb(color).map(|channel| {
+        let c = f64::from(channel) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+fn contrast(first: f64, second: f64) -> f64 {
+    (first.max(second) + 0.05) / (first.min(second) + 0.05)
+}
+
+fn readable_color(color: &str, backgrounds: [f64; 2], endpoint: u8) -> String {
+    let rgb = rgb(color);
+    // Blend toward the readable endpoint in small steps to retain the hue.
+    for step in 1..=20 {
+        let [r, g, b] = rgb.map(|c| (u16::from(c) * (20 - step) + u16::from(endpoint) * step) / 20);
+        let candidate = format!("#{r:02x}{g:02x}{b:02x}");
+        let lum = luminance(&candidate);
+        if backgrounds.iter().all(|&bg| contrast(lum, bg) >= 4.5) {
+            return candidate;
+        }
+    }
+    color.to_owned()
 }
 
 fn json_color(value: &Value, path: &[&str]) -> Option<String> {
@@ -283,14 +451,22 @@ fn colors_from_static(path: &Path) -> Option<Colors> {
     let muted = required_color(&vars, &["THEME_STATIC_SUBTEXT", "THEME_SIGNAL_MUTED"])?;
     let accent = required_color(&vars, &["THEME_STATIC_ACCENT"])?;
     let power = required_color(&vars, &["THEME_STATIC_CYAN"])?;
+    let browser = optional_color(&vars, &["THEME_STATIC_BLUE"], &power);
+    let communication = optional_color(&vars, &["THEME_STATIC_WARNING"], "#f9e2af");
+    let entertainment = optional_color(&vars, &["THEME_STATIC_ERROR"], "#f38ba8");
+    let other = optional_color(&vars, &["THEME_STATIC_OUTLINE"], &muted);
     Some(Colors {
         base,
         mantle,
         text,
-        muted: muted.clone(),
+        muted,
+        work: accent.clone(),
         accent,
         power,
-        other: muted,
+        browser,
+        other,
+        communication,
+        entertainment,
     })
 }
 
@@ -304,6 +480,14 @@ fn required_color(vars: &HashMap<String, String>, keys: &[&str]) -> Option<Strin
         }
     }
     None
+}
+
+fn optional_color(vars: &HashMap<String, String>, keys: &[&str], fallback: &str) -> String {
+    keys.iter()
+        .find_map(|key| vars.get(*key))
+        .filter(|value| valid_color(value))
+        .cloned()
+        .unwrap_or_else(|| fallback.to_owned())
 }
 
 fn font_from_static(path: &Path) -> Option<(Option<String>, Option<u8>)> {
@@ -345,6 +529,7 @@ fn apply_explicit_colors(colors: &mut Colors, config: &Config) {
     }
     if supplied[4].is_some() {
         colors.accent = (*values.next().unwrap()).to_owned();
+        colors.work.clone_from(&colors.accent);
     }
     if supplied[5].is_some() {
         colors.power = (*values.next().unwrap()).to_owned();
@@ -465,8 +650,25 @@ THEME_STATIC_CYAN='#33cccc'
         let config = Config::default();
         let theme = Theme::resolve_with_paths(&config, dir.path(), &palette_path, &static_path);
         assert_eq!(theme.base, "#101010");
-        assert_eq!(theme.accent, "#123456");
+        assert_ne!(theme.accent, "#123456");
         assert_eq!(theme.power, "#00cccc");
+        let backgrounds = [luminance(&theme.base), luminance(&theme.mantle)];
+        for color in [
+            &theme.work,
+            &theme.browser,
+            &theme.communication,
+            &theme.entertainment,
+            &theme.muted,
+            &theme.other,
+            &theme.accent,
+        ] {
+            assert!(
+                backgrounds
+                    .iter()
+                    .all(|&bg| contrast(luminance(color), bg) >= 4.5),
+                "{color}"
+            );
+        }
         assert_eq!(theme.font_family, "Static Mono");
         assert_eq!(theme.font_size, 13);
     }
@@ -498,7 +700,7 @@ THEME_STATIC_CYAN='#33cccc'
 
         config.theme.accent = Some("not-a-color".to_owned());
         let theme = Theme::resolve_with_paths(&config, dir.path(), &palette_path, &static_path);
-        assert_eq!(theme.accent, "#123456");
+        assert_ne!(theme.accent, "#123456");
     }
 
     #[test]

@@ -2,11 +2,12 @@ use crate::config::{Config, LayoutMode};
 use crate::sessions::display_name;
 use crate::theme::Theme;
 use crate::timeutil::{self, SLOT_COUNT};
-use crate::view::{DayView, DetailView, OtherRow, TOP_APPS};
+use crate::view::{AppRow, DayView, DetailView, OtherRow, TOP_APPS};
 
-const PREFIX_WIDTH: usize = 20;
-const WIDE_TIMELINE: usize = 96;
-const NARROW_TIMELINE: usize = 48;
+const NAME_WIDTH: usize = 16;
+const PREFIX_WIDTH: usize = 24;
+const STATS_WIDTH: usize = 24;
+const SESSION_STATS_WIDTH: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -16,7 +17,8 @@ pub enum OutputMode {
 
 #[derive(Debug, Clone, Copy)]
 struct Layout {
-    narrow: bool,
+    /// Columns used to draw one half-hour timeline slot.
+    cell_width: usize,
     session_count: bool,
 }
 
@@ -30,58 +32,74 @@ impl Layout {
             .and_then(|value| value.parse::<u32>().ok())
             .filter(|width| *width >= 640)
             .unwrap_or(1280);
-        let narrow = std::env::var("SCREEN_TIME_NARROW").as_deref() == Ok("1")
-            || match config.layout_mode() {
-                LayoutMode::Full => false,
-                LayoutMode::Compact => true,
-                LayoutMode::Auto => !fits_wide(theme.font_size, screen_width, session_count),
-            };
+        let cell_width = if std::env::var("SCREEN_TIME_NARROW").as_deref() == Ok("1") {
+            1
+        } else {
+            match config.layout_mode() {
+                LayoutMode::Full => 2,
+                LayoutMode::Compact => 1,
+                LayoutMode::Auto => auto_cell_width(theme.font_size, screen_width, session_count),
+            }
+        };
         Self {
-            narrow,
+            cell_width,
             session_count,
         }
     }
 
     fn timeline_width(&self) -> usize {
-        if self.narrow {
-            NARROW_TIMELINE
-        } else {
-            WIDE_TIMELINE
-        }
+        SLOT_COUNT * self.cell_width
     }
 
-    fn slot_width(&self) -> usize {
-        if self.narrow { 1 } else { 2 }
-    }
-
-    fn prefix_width(&self) -> usize {
-        if self.session_count {
-            PREFIX_WIDTH + 2
-        } else {
-            PREFIX_WIDTH
-        }
+    fn stats_width(&self) -> usize {
+        STATS_WIDTH
+            + if self.session_count {
+                SESSION_STATS_WIDTH
+            } else {
+                0
+            }
     }
 
     fn screen_width(&self) -> usize {
-        self.prefix_width() + self.timeline_width()
+        PREFIX_WIDTH + self.timeline_width() + self.stats_width()
     }
 
     fn top_apps(&self) -> usize {
-        if self.narrow { 4 } else { TOP_APPS }
+        TOP_APPS
     }
 }
 
-/// Conservative monospace estimate at roughly 96 dpi. The Rofi window is 94%
-/// of the screen; 20 columns of labels plus the 96-column timeline must fit.
-fn fits_wide(font_size: u8, screen_width: u32, session_count: bool) -> bool {
-    let columns = 20 + if session_count { 2 } else { 0 } + WIDE_TIMELINE;
-    let char_px = f64::from(font_size) * (96.0 / 72.0) * 0.6;
-    columns as f64 * char_px + 28.0 <= f64::from(screen_width) * 0.94
+/// Pick the widest timeline that still fits the focused monitor. One column
+/// per half-hour slot is the compact fallback; wider monitors get two columns
+/// per slot so the timeline uses the available width instead of staying small.
+/// Explicit full/compact modes still override auto detection.
+fn auto_cell_width(font_size: u8, screen_width: u32, session_count: bool) -> usize {
+    (1..=2)
+        .rev()
+        .find(|cell_width| fits_layout(*cell_width, font_size, screen_width, session_count))
+        .unwrap_or(1)
+}
+
+fn fits_layout(cell_width: usize, font_size: u8, screen_width: u32, session_count: bool) -> bool {
+    let columns = PREFIX_WIDTH
+        + SLOT_COUNT * cell_width
+        + STATS_WIDTH
+        + if session_count {
+            SESSION_STATS_WIDTH
+        } else {
+            0
+        };
+    let char_px = f64::from(font_size) * (96.0 / 72.0) * 0.75;
+    columns as f64 * char_px + 64.0 <= f64::from(screen_width) * 0.94
+}
+
+pub(crate) fn grid_columns(theme: &Theme) -> usize {
+    Layout::from_theme(theme).screen_width()
 }
 
 pub fn render_main(view: &DayView, mode: OutputMode) -> String {
-    let theme = Theme::load();
-    let layout = Layout::from_theme(&theme);
+    let theme = &Theme::load();
+    let layout = Layout::from_theme(theme);
     let width = layout.screen_width();
     let mut out = String::new();
     if mode == OutputMode::Rofi {
@@ -91,179 +109,458 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         out.push_str("\0keep-selection\x1ftrue\n");
     }
 
-    let date_label = timeutil::format_date_label(view.date, view.today);
-    emit(
-        &mut out,
-        &pad_section(
-            "\u{258c} SCREEN TIME",
-            &date_label,
-            width,
-            &theme.accent,
-            mode,
-        ),
-        RowMeta::NonSelectable,
-        mode,
-    );
-
-    let mut active = format!(" {} active", timeutil::format_duration(view.active_seconds));
-    if view.stale {
-        active.push_str("  · stale");
-    } else if let Some(delta) = view.delta_seconds {
-        let minutes = delta.abs();
-        if minutes < 60 {
-            active.push_str("   on par with usual at this time");
-        } else {
-            let arrow = if delta >= 0 { "▲" } else { "▼" };
-            active.push_str(&format!(
-                "   {arrow} {} vs usual at this time",
-                timeutil::format_minutes(minutes)
-            ));
-        }
-    }
-    emit(&mut out, &active, RowMeta::NonSelectable, mode);
-
-    let mut details = vec![format!(
-        "powered {}",
-        timeutil::format_duration(view.powered_seconds)
-    )];
-    if let (Some(first), Some(last)) = (view.first_active_ts, view.last_active_ts) {
-        details.push(format!("span {}", timeutil::format_span(first, last)));
-    }
-    if let Some((start, end)) = view.peak {
-        details.push(format!("peak {}", timeutil::format_span(start, end)));
-    }
-    emit(
-        &mut out,
-        &format!(" {}", details.join(" · ")),
-        RowMeta::NonSelectable,
-        mode,
-    );
-
-    let trend_line = trend_line(&view.trend, view.trend_avg, mode, &theme.power);
-    emit(&mut out, &trend_line, RowMeta::NonSelectable, mode);
-    emit(&mut out, "", RowMeta::NonSelectable, mode);
-    emit(
-        &mut out,
-        &section_line("WHEN", &theme.power, mode),
-        RowMeta::NonSelectable,
-        mode,
-    );
-
-    let ruler = if layout.narrow {
-        ruler_narrow()
+    let total = timeutil::format_duration(view.active_seconds);
+    let title = styled_span("SCREEN TIME", &theme.accent, Some("700"), mode);
+    let total_line = if mode == OutputMode::Rofi {
+        format!(" <span size=\"26pt\" weight=\"700\">{total}</span>")
     } else {
-        ruler_wide()
+        format!(" {total} active")
     };
-    emit(
-        &mut out,
-        &format!("{}{}", " ".repeat(layout.prefix_width()), ruler),
-        RowMeta::NonSelectable,
-        mode,
-    );
 
-    let power_strip = strip(
-        &view.power_slots,
-        "▓",
-        layout.slot_width(),
-        mode,
-        &theme.power,
-    );
-    emit(
-        &mut out,
-        &row_line(
-            &layout,
-            "POWER",
-            view.powered_seconds,
-            &power_strip,
-            None,
-            mode,
-        ),
-        RowMeta::NonSelectable,
-        mode,
-    );
+    let long_date = view.date.format("%A, %-d %B %Y").to_string();
+    let relative = if view.is_today {
+        "Today · "
+    } else if view.date.succ_opt() == Some(view.today) {
+        "Yesterday · "
+    } else {
+        ""
+    };
+    let stale = if view.stale { " · stale" } else { "" };
+    let date = role_span(&format!("{relative}{long_date}{stale}"), &theme.muted, mode);
 
-    emit(
-        &mut out,
-        &section_line("APPS", &theme.accent, mode),
-        RowMeta::NonSelectable,
-        mode,
-    );
-
-    let visible_rows = view.rows.iter().take(layout.top_apps());
-    let mut any_rows = false;
-    for row in visible_rows {
-        any_rows = true;
-        let app_strip = strip(&row.slots, "█", layout.slot_width(), mode, &theme.accent);
-        let line = row_line(
-            &layout,
-            &row.name,
-            row.seconds,
-            &app_strip,
-            layout.session_count.then_some(row.sessions),
+    let peak = view
+        .peak
+        .map(|(start, end)| timeutil::format_span(start, end))
+        .unwrap_or_else(|| "no peak".to_owned());
+    let summary = if let Some(top) = view.rows.first() {
+        let category = AppCategory::from_app(&top.name);
+        let dot = role_span("●", category.color(theme), mode);
+        let name = styled_span(
+            &markup_text(&top.name, mode),
+            &theme.text,
+            Some("600"),
             mode,
         );
-        emit(&mut out, &line, RowMeta::App(row.name.clone()), mode);
+        let duration = styled_span(
+            &timeutil::format_duration_compact(top.seconds),
+            &theme.text,
+            Some("600"),
+            mode,
+        );
+        format!(
+            " {} {dot} {name} {duration} {}",
+            role_span("Top app", &theme.muted, mode),
+            role_span(&format!("· peak {peak}"), &theme.muted, mode)
+        )
+    } else {
+        format!(" No activity recorded · peak {peak}")
+    };
+    if mode == OutputMode::Rofi {
+        // The message widget measures mixed font sizes independently of list rows.
+        out.push_str(&format!(
+            "\0message\x1f <span size=\"{}pt\">{title}</span>    {total_line}    <span size=\"{}pt\">{date}</span>\n",theme.font_size,theme.font_size
+        ));
+        let apps = view.rows.len().min(layout.top_apps());
+        let extra = usize::from(view.other.is_some() || view.rows.len() > apps || apps == 0);
+        out.push_str(&format!("\0active\x1f2-5,7-{}\n", 7 + apps + extra));
+        out.push_str(&format!(
+            "\0theme\x1flistview {{ lines: {}; }}\n",
+            10 + apps + extra
+        ));
+        emit(&mut out, &summary, RowMeta::NonSelectable, mode);
+    } else {
+        out.push_str(&format!(" {title}\n{total_line}\n {date}\n{summary}\n"));
     }
+    emit_spacer(&mut out, mode);
 
-    let mut other_slots = [0i64; SLOT_COUNT];
-    let mut other_count = 0usize;
-    let mut other_seconds = 0i64;
-    if let Some(other) = &view.other {
-        other_count += other.count;
-        other_seconds += other.seconds;
-        for (index, active) in other.slots.iter().enumerate() {
-            if *active {
-                other_slots[index] += 60;
-            }
-        }
-    }
-    // The narrow layout has one fewer app row; fold the fifth row into the
-    // aggregate without double-counting the rows already in `view.other`.
-    for row in view.rows.iter().skip(layout.top_apps()) {
-        other_count += 1;
-        other_seconds += row.seconds;
-        for (index, active) in row.slots.iter().enumerate() {
-            if *active {
-                other_slots[index] += 60;
-            }
-        }
-    }
-    if other_count > 0 {
-        let other = OtherRow {
-            count: other_count,
-            seconds: other_seconds,
-            slots: slots_active_i64(&other_slots),
-        };
-        let other_strip = strip(&other.slots, "▒", layout.slot_width(), mode, &theme.other);
+    emit(
+        &mut out,
+        &section_header("DAY ACTIVITY", &format!("peak {peak}"), width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    let ruler_line = format!(
+        "{}{}",
+        " ".repeat(PREFIX_WIDTH),
+        ruler(layout.timeline_width())
+    );
+    emit(
+        &mut out,
+        &panel_line(&ruler_line, width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+
+    // The shared strip uses the dominant (highest-ranked) app category in
+    // each slot. Every row below uses the same origin and slot width.
+    let other = aggregate_other(view, layout.top_apps());
+    let day_strip = day_strip(view, &other, theme, &layout, mode);
+    let day_line = format!("{}{}", " ".repeat(PREFIX_WIDTH), day_strip);
+    emit(
+        &mut out,
+        &panel_line(&day_line, width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    emit(
+        &mut out,
+        &panel_line(&power_line(view, theme, &layout, mode), width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    emit_spacer(&mut out, mode);
+
+    let app_count = view.rows.len() + view.other.as_ref().map_or(0, |row| row.count);
+    let timeline_meta = format!(
+        "top {} of {} apps · {}",
+        view.rows.len().min(layout.top_apps()),
+        app_count,
+        total
+    );
+    emit(
+        &mut out,
+        &section_header("APP TIMELINE", &timeline_meta, width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+
+    for (index, row) in view.rows.iter().take(layout.top_apps()).enumerate() {
         emit(
             &mut out,
-            &other_line(&layout, &other, &other_strip),
+            &panel_line(
+                &app_line(index + 1, row, view.active_seconds, theme, &layout, mode),
+                width,
+                theme,
+                mode,
+            ),
+            RowMeta::App(row.name.clone()),
+            mode,
+        );
+    }
+    if let Some(other) = &other {
+        emit(
+            &mut out,
+            &panel_line(
+                &other_line(other, view.active_seconds, theme, &layout, mode),
+                width,
+                theme,
+                mode,
+            ),
             RowMeta::NonSelectable,
             mode,
         );
     }
-
-    if !any_rows && view.rows.len() <= layout.top_apps() && view.active_seconds == 0 {
+    if view.rows.is_empty() && view.active_seconds == 0 {
         emit(
             &mut out,
-            " No activity recorded today",
+            &panel_line(" No activity recorded today", width, theme, mode),
             RowMeta::App("__none__".to_owned()),
             mode,
         );
     }
 
-    emit(&mut out, "", RowMeta::NonSelectable, mode);
-    let default_footer = " ←/→ day   T today   R refresh   ↵ detail   esc close";
-    emit(&mut out, default_footer, RowMeta::NonSelectable, mode);
+    emit_spacer(&mut out, mode);
+    emit(
+        &mut out,
+        &format!(
+            " {}",
+            role_span(
+                "←/→ day   T today   R refresh   ↵ detail   esc close",
+                &theme.muted,
+                mode,
+            )
+        ),
+        RowMeta::NonSelectable,
+        mode,
+    );
     out
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppCategory {
+    Browser,
+    Work,
+    Communication,
+    Entertainment,
+    System,
+    Unknown,
+}
+
+impl AppCategory {
+    fn from_app(name: &str) -> Self {
+        let name = name.to_ascii_lowercase();
+        let matches = |apps: &[&str]| {
+            apps.iter().any(|app| {
+                name == *app
+                    || name
+                        .split(|c: char| !c.is_ascii_alphanumeric())
+                        .any(|part| part == *app)
+            })
+        };
+        if matches(&[
+            "brave",
+            "firefox",
+            "chrome",
+            "chromium",
+            "librewolf",
+            "floorp",
+            "zen browser",
+        ]) {
+            Self::Browser
+        } else if matches(&[
+            "signal",
+            "slack",
+            "discord",
+            "zoom",
+            "teams",
+            "telegram",
+            "thunderbird",
+        ]) {
+            Self::Communication
+        } else if matches(&[
+            "steam", "cs2", "music", "spotify", "vlc", "mpv", "gimp", "game",
+        ]) {
+            Self::Entertainment
+        } else if matches(&[
+            "code",
+            "vscode",
+            "zed",
+            "foot",
+            "terminal",
+            "kitty",
+            "alacritty",
+            "wezterm",
+            "neovim",
+            "libreoffice",
+            "zotero",
+        ]) {
+            Self::Work
+        } else if matches(&[
+            "files",
+            "nautilus",
+            "portal",
+            "settings",
+            "system monitor",
+            "task manager",
+        ]) {
+            Self::System
+        } else {
+            Self::Unknown
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Browser => "Browser",
+            Self::Work => "Work",
+            Self::Communication => "Comm",
+            Self::Entertainment => "Leisure",
+            Self::System => "System",
+            Self::Unknown => "Unknown",
+        }
+    }
+
+    fn color(self, theme: &Theme) -> &str {
+        match self {
+            Self::Browser => &theme.browser,
+            Self::Work => &theme.work,
+            Self::Communication => &theme.communication,
+            Self::Entertainment => &theme.entertainment,
+            Self::System => &theme.muted,
+            Self::Unknown => &theme.other,
+        }
+    }
+}
+
+fn aggregate_other(view: &DayView, visible: usize) -> Option<OtherRow> {
+    let mut count = view.other.as_ref().map_or(0, |row| row.count);
+    let mut seconds = view.other.as_ref().map_or(0, |row| row.seconds);
+    let mut slots_i64 = [0i64; SLOT_COUNT];
+    if let Some(other) = &view.other {
+        for (index, active) in other.slots.iter().enumerate() {
+            if *active {
+                slots_i64[index] += 60;
+            }
+        }
+    }
+    for row in view.rows.iter().skip(visible) {
+        count += 1;
+        seconds += row.seconds;
+        for (index, active) in row.slots.iter().enumerate() {
+            if *active {
+                slots_i64[index] += 60;
+            }
+        }
+    }
+    (count > 0).then(|| OtherRow {
+        count,
+        seconds,
+        slots: slots_active_i64(&slots_i64),
+    })
+}
+
+fn day_strip(
+    view: &DayView,
+    other: &Option<OtherRow>,
+    theme: &Theme,
+    layout: &Layout,
+    mode: OutputMode,
+) -> String {
+    let mut out = String::new();
+    for slot in 0..SLOT_COUNT {
+        let category = view
+            .rows
+            .iter()
+            .take(layout.top_apps())
+            .find(|row| row.slots.get(slot).copied().unwrap_or(false))
+            .map(|row| AppCategory::from_app(&row.name));
+        let (glyph, color) = if let Some(category) = category {
+            ("█", category.color(theme))
+        } else if other
+            .as_ref()
+            .is_some_and(|row| row.slots.get(slot).copied().unwrap_or(false))
+        {
+            ("▒", theme.other.as_str())
+        } else {
+            (" ", theme.other.as_str())
+        };
+        let value = glyph.repeat(layout.cell_width);
+        if mode == OutputMode::Rofi && glyph != " " {
+            out.push_str(&format!(
+                "<span background=\"{color}\">{}</span>",
+                " ".repeat(layout.cell_width)
+            ));
+        } else {
+            out.push_str(&value);
+        }
+    }
+    out
+}
+
+fn power_line(view: &DayView, theme: &Theme, layout: &Layout, mode: OutputMode) -> String {
+    let dot = role_span("■", &theme.power, mode);
+    let name = role_span(
+        &format!("{:<width$}", "POWER", width = NAME_WIDTH),
+        &theme.muted,
+        mode,
+    );
+    let power_strip = strip(&view.power_slots, "▓", layout, mode, &theme.power);
+    let duration = styled_span(
+        &format!(
+            "{:>7}",
+            timeutil::format_duration_compact(view.powered_seconds)
+        ),
+        &theme.text,
+        Some("600"),
+        mode,
+    );
+    let session_padding = if layout.session_count {
+        " ".repeat(SESSION_STATS_WIDTH)
+    } else {
+        String::new()
+    };
+    format!(
+        "    {dot} {name}  {power_strip}  {duration}{session_padding}  {}  {}",
+        " ".repeat(4),
+        " ".repeat(7)
+    )
+}
+
+fn app_line(
+    rank: usize,
+    row: &AppRow,
+    total: i64,
+    theme: &Theme,
+    layout: &Layout,
+    mode: OutputMode,
+) -> String {
+    let category = AppCategory::from_app(&row.name);
+    let color = category.color(theme);
+    let rank = role_span(&format!("{rank:>2}"), &theme.muted, mode);
+    let dot = role_span("●", color, mode);
+    let name = format!(
+        "{:<width$}",
+        display_name(&row.name, NAME_WIDTH),
+        width = NAME_WIDTH
+    );
+    let name = styled_span(&markup_text(&name, mode), &theme.text, Some("600"), mode);
+    let spark = strip(&row.slots, "█", layout, mode, color);
+    let share = percentage(row.seconds, total);
+    let duration = styled_span(
+        &format!("{:>7}", timeutil::format_duration_compact(row.seconds)),
+        &theme.text,
+        Some("600"),
+        mode,
+    );
+    let sessions = if layout.session_count {
+        role_span(
+            &format!(" ×{:<3}", row.sessions.min(99)),
+            &theme.muted,
+            mode,
+        )
+    } else {
+        String::new()
+    };
+    let share = role_span(&format!("{share:>3}%"), &theme.muted, mode);
+    let category_label = role_span(&format!("{:>7}", category.label()), color, mode);
+    format!(" {rank} {dot} {name}  {spark}  {duration}{sessions}  {share}  {category_label}")
+}
+
+fn other_line(
+    other: &OtherRow,
+    total: i64,
+    theme: &Theme,
+    layout: &Layout,
+    mode: OutputMode,
+) -> String {
+    let label = if other.count == 1 {
+        "+1 more app".to_owned()
+    } else {
+        format!("+{} more apps", other.count)
+    };
+    let dot = role_span("●", &theme.other, mode);
+    let name = role_span(
+        &format!(
+            "{:<width$}",
+            display_name(&label, NAME_WIDTH),
+            width = NAME_WIDTH
+        ),
+        &theme.muted,
+        mode,
+    );
+    let spark = strip(&other.slots, "▒", layout, mode, &theme.other);
+    let share = percentage(other.seconds, total);
+    let duration = styled_span(
+        &format!("{:>7}", timeutil::format_duration_compact(other.seconds)),
+        &theme.text,
+        Some("600"),
+        mode,
+    );
+    let session_padding = if layout.session_count {
+        " ".repeat(SESSION_STATS_WIDTH)
+    } else {
+        String::new()
+    };
+    let share = role_span(&format!("{share:>3}%"), &theme.muted, mode);
+    let category = role_span("  Mixed", &theme.other, mode);
+    format!("    {dot} {name}  {spark}  {duration}{session_padding}  {share}  {category}")
+}
+
+fn percentage(seconds: i64, total: i64) -> i64 {
+    if total > 0 {
+        ((seconds.max(0) as f64 / total as f64) * 100.0).round() as i64
+    } else {
+        0
+    }
+}
+
 pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
-    let theme = Theme::load();
-    let layout = Layout::from_theme(&theme);
+    let theme = &Theme::load();
+    let layout = Layout::from_theme(theme);
     let width = layout.screen_width().max(96);
     let mut out = String::new();
     if mode == OutputMode::Rofi {
+        out.push_str("\0message\x1f\n\0theme\x1flistview { lines: 24; }\n");
         out.push_str("\0use-hot-keys\x1ftrue\n");
         out.push_str("\0markup-rows\x1ftrue\n");
         out.push_str("\0no-custom\x1ftrue\n");
@@ -310,7 +607,7 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
         freshness.push_str(" · stale live");
     }
     emit(&mut out, &freshness, RowMeta::NonSelectable, mode);
-    emit(&mut out, "", RowMeta::NonSelectable, mode);
+    emit_spacer(&mut out, mode);
 
     if let Some(error) = &view.db_error {
         emit(
@@ -360,7 +657,7 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
         }
     }
 
-    emit(&mut out, "", RowMeta::NonSelectable, mode);
+    emit_spacer(&mut out, mode);
     emit(
         &mut out,
         &section_line("7 DAY", &theme.power, mode),
@@ -382,48 +679,54 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
     out
 }
 
-fn row_line(
-    layout: &Layout,
-    name: &str,
-    seconds: i64,
-    strip: &str,
-    sessions: Option<i64>,
-    mode: OutputMode,
-) -> String {
-    let mut fitted = display_name(name, 10);
-    if mode == OutputMode::Rofi {
-        fitted = escape_markup(&fitted);
-    }
-    let duration = timeutil::format_duration_compact(seconds);
-    let prefix = if layout.session_count {
-        format!(
-            " {}{:>6} ×{:<2} ",
-            fitted,
-            duration,
-            sessions.unwrap_or(0).min(99)
-        )
-    } else {
-        format!(" {}{:>6}   ", fitted, duration)
-    };
-    format!("{prefix}{strip}")
-}
-
-fn other_line(layout: &Layout, other: &OtherRow, strip: &str) -> String {
-    let label = format!("+{} apps", other.count);
-    let mut fitted = display_name(&label, 10);
-    if layout.session_count {
-        fitted.push(' ');
-    }
-    let duration = timeutil::format_duration_compact(other.seconds);
-    let prefix = format!(" {}{:>6}   ", fitted, duration);
-    format!("{prefix}{strip}")
-}
-
 fn escape_markup(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn markup_text(value: &str, mode: OutputMode) -> String {
+    if mode == OutputMode::Rofi {
+        escape_markup(value)
+    } else {
+        value.to_owned()
+    }
+}
+
+fn styled_span(value: &str, color: &str, weight: Option<&str>, mode: OutputMode) -> String {
+    if mode == OutputMode::Rofi {
+        let weight = weight
+            .map(|weight| format!(" weight=\"{weight}\""))
+            .unwrap_or_default();
+        format!("<span foreground=\"{color}\"{weight}>{value}</span>")
+    } else {
+        value.to_owned()
+    }
+}
+
+fn panel_line(line: &str, width: usize, _theme: &Theme, mode: OutputMode) -> String {
+    if mode == OutputMode::Rofi {
+        return line.to_owned();
+    }
+    let padding = width.saturating_sub(visible_len(line));
+    format!("{line}{}", " ".repeat(padding))
+}
+
+fn section_header(
+    label: &str,
+    meta: &str,
+    width: usize,
+    theme: &Theme,
+    mode: OutputMode,
+) -> String {
+    let left_plain = format!(" ▌ {label}");
+    let padding = width.saturating_sub(visible_len(&left_plain) + visible_len(meta));
+    let marker = styled_span("▌", &theme.accent, Some("700"), mode);
+    let title = styled_span(label, &theme.accent, Some("700"), mode);
+    let meta = role_span(meta, &theme.muted, mode);
+    let line = format!(" {marker} {title}{}{meta}", " ".repeat(padding));
+    panel_line(&line, width, theme, mode)
 }
 
 fn marker(color: &str, mode: OutputMode) -> String {
@@ -488,35 +791,13 @@ fn visible_len(value: &str) -> usize {
     count
 }
 
-fn ruler_wide() -> String {
-    let mut line = [' '; WIDE_TIMELINE];
-    for (position, label) in [
-        (0usize, "00"),
-        (24, "06"),
-        (48, "12"),
-        (72, "18"),
-        (94, "24"),
-    ] {
+fn ruler(width: usize) -> String {
+    let mut line = vec![' '; width];
+    for hour in (0..=24).step_by(2) {
+        let position = (width * hour / 24).min(width - 2);
+        let label = format!("{hour:02}");
         for (offset, character) in label.chars().enumerate() {
-            if position + offset < WIDE_TIMELINE {
-                line[position + offset] = character;
-            }
-        }
-    }
-    line.iter().collect()
-}
-
-fn ruler_narrow() -> String {
-    let mut line = [' '; NARROW_TIMELINE];
-    for (position, label) in [
-        (0usize, "00"),
-        (12, "06"),
-        (24, "12"),
-        (36, "18"),
-        (46, "24"),
-    ] {
-        for (offset, character) in label.chars().enumerate() {
-            if position + offset < NARROW_TIMELINE {
+            if position + offset < width {
                 line[position + offset] = character;
             }
         }
@@ -527,27 +808,24 @@ fn ruler_narrow() -> String {
 fn strip(
     slots: &[bool; SLOT_COUNT],
     glyph: &str,
-    slot_width: usize,
+    layout: &Layout,
     mode: OutputMode,
     color: &str,
 ) -> String {
-    let mut value = String::with_capacity(SLOT_COUNT * slot_width);
+    let mut value = String::with_capacity(layout.timeline_width());
     for active in slots.iter().take(SLOT_COUNT) {
-        if *active {
-            for _ in 0..slot_width {
-                value.push_str(glyph);
-            }
+        if !active {
+            value.push_str(&" ".repeat(layout.cell_width));
+        } else if mode == OutputMode::Rofi {
+            value.push_str(&format!(
+                "<span background=\"{color}\">{}</span>",
+                " ".repeat(layout.cell_width)
+            ));
         } else {
-            for _ in 0..slot_width {
-                value.push(' ');
-            }
+            value.push_str(&glyph.repeat(layout.cell_width));
         }
     }
-    if mode == OutputMode::Rofi {
-        format!("<span foreground=\"{color}\">{value}</span>")
-    } else {
-        value
-    }
+    value
 }
 
 fn slots_active_i64(slots: &[i64; SLOT_COUNT]) -> [bool; SLOT_COUNT] {
@@ -578,30 +856,7 @@ fn sparkline(trend: &[Option<i64>]) -> Option<String> {
 }
 
 fn role_span(value: &str, color: &str, mode: OutputMode) -> String {
-    if mode == OutputMode::Rofi {
-        format!("<span foreground=\"{color}\">{value}</span>")
-    } else {
-        value.to_owned()
-    }
-}
-
-fn trend_line(
-    trend: &[Option<i64>],
-    average: Option<i64>,
-    mode: OutputMode,
-    color: &str,
-) -> String {
-    let Some(sparkline) = sparkline(trend) else {
-        return " 7d no history".to_owned();
-    };
-    let sparkline = role_span(&sparkline, color, mode);
-    match average {
-        Some(average) => format!(
-            " 7d {sparkline}  avg {}",
-            timeutil::format_duration(average)
-        ),
-        None => format!(" 7d {sparkline}"),
-    }
+    styled_span(value, color, None, mode)
 }
 
 fn detail_trend_line(
@@ -623,6 +878,15 @@ fn detail_trend_line(
 enum RowMeta {
     NonSelectable,
     App(String),
+}
+
+fn emit_spacer(out: &mut String, mode: OutputMode) {
+    let spacer = if mode == OutputMode::Rofi {
+        "<span size=\"4pt\"> </span>"
+    } else {
+        ""
+    };
+    emit(out, spacer, RowMeta::NonSelectable, mode);
 }
 
 fn emit(out: &mut String, line: &str, meta: RowMeta, mode: OutputMode) {
@@ -679,11 +943,11 @@ mod tests {
     }
 
     #[test]
-    fn main_lines_are_116_columns_or_less() {
+    fn main_lines_fit_the_default_1280_layout() {
         let output = render_main(&sample_view(), OutputMode::Plain);
         for line in output.lines() {
             assert!(
-                line.chars().count() <= 116,
+                line.chars().count() <= 96,
                 "line is too wide ({}): {line}",
                 line.chars().count()
             );
@@ -695,9 +959,65 @@ mod tests {
     }
 
     #[test]
-    fn wide_ruler_is_96_columns() {
-        assert_eq!(ruler_wide().chars().count(), 96);
-        assert_eq!(ruler_narrow().chars().count(), 48);
+    fn ruler_matches_each_timeline_width() {
+        for width in [48, 96] {
+            let ticks = ruler(width);
+            assert_eq!(ticks.len(), width);
+            for hour in (0..=24).step_by(2) {
+                let start = (width * hour / 24).min(width - 2);
+                assert_eq!(&ticks[start..start + 2], format!("{hour:02}"));
+            }
+        }
+    }
+
+    #[test]
+    fn compact_cells_merge_half_hour_slots() {
+        let slots = sample_view().rows[0].slots;
+        let compact = Layout {
+            cell_width: 1,
+            session_count: false,
+        };
+        let full = Layout {
+            cell_width: 2,
+            session_count: false,
+        };
+        assert_eq!(
+            strip(&slots, "█", &compact, OutputMode::Plain, "#fff")
+                .chars()
+                .count(),
+            48
+        );
+        assert_eq!(
+            strip(&slots, "█", &full, OutputMode::Plain, "#fff")
+                .chars()
+                .count(),
+            96
+        );
+    }
+
+    #[test]
+    fn app_categories_cover_common_fixture_apps() {
+        assert_eq!(AppCategory::from_app("Firefox"), AppCategory::Browser);
+        assert_eq!(AppCategory::from_app("Code"), AppCategory::Work);
+        assert_eq!(AppCategory::from_app("Slack"), AppCategory::Communication);
+        assert_eq!(AppCategory::from_app("Zoom"), AppCategory::Communication);
+        assert_eq!(AppCategory::from_app("Music"), AppCategory::Entertainment);
+        assert_eq!(AppCategory::from_app("Gimp"), AppCategory::Entertainment);
+        assert_eq!(AppCategory::from_app("Files"), AppCategory::System);
+        assert_eq!(AppCategory::from_app("Football"), AppCategory::Unknown);
+        assert_eq!(
+            AppCategory::from_app("org.mozilla.firefox"),
+            AppCategory::Browser
+        );
+        assert_eq!(AppCategory::from_app("Notes"), AppCategory::Unknown);
+    }
+
+    #[test]
+    fn auto_layout_prefers_full_slots_then_falls_back_to_compact() {
+        assert_eq!(auto_cell_width(12, 1920, false), 2);
+        assert_eq!(auto_cell_width(12, 2048, false), 2);
+        assert_eq!(auto_cell_width(12, 2560, false), 2);
+        assert_eq!(auto_cell_width(12, 1280, false), 1);
     }
 
     #[test]

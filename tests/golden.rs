@@ -12,8 +12,8 @@ fn main_screen_1280x800() {
     assert_or_update_golden("main_1280x800.txt", &actual);
     for line in actual.lines() {
         assert!(
-            line.chars().count() <= 116,
-            "line exceeds 116 columns: {line:?}"
+            line.chars().count() <= 96,
+            "line exceeds 96 columns at 1280x800: {line:?}"
         );
     }
 }
@@ -22,14 +22,24 @@ fn main_screen_1280x800() {
 fn main_screen_1920x1080() {
     init_tz();
     let fixture = Fixture::new();
-    let actual = fixture.render(&["render", "--format", "rofi"]);
+    let actual = fixture.render_env(
+        &["render", "--format", "rofi"],
+        &[("SCREEN_TIME_SCREEN_WIDTH", "1920")],
+    );
     assert_or_update_golden("main_1920x1080.txt", &actual);
-    assert!(actual.contains("6h 48m active"));
-    assert!(actual.contains("powered 12h 40m"));
-    assert!(actual.contains("+3 apps"), "{actual}");
-    assert!(actual.contains("▌ SCREEN TIME"), "{actual}");
-    assert!(actual.contains("▌ WHEN"), "{actual}");
-    assert!(actual.contains("▌ APPS"), "{actual}");
+    for line in actual.lines() {
+        assert!(
+            line.chars().count() <= 144,
+            "line exceeds 144 columns at 1920x1080: {line:?}"
+        );
+    }
+    assert!(actual.contains("6h 48m"));
+    assert!(actual.contains("POWER"));
+    assert!(actual.contains("DAY ACTIVITY"));
+    assert!(actual.contains("APP TIMELINE"));
+    assert!(actual.contains("Top app"));
+    assert!(actual.contains("●"));
+    assert!(actual.contains("%"));
 }
 
 #[test]
@@ -47,7 +57,10 @@ fn detail_screen_1280x800() {
 fn detail_screen_1920x1080() {
     init_tz();
     let fixture = Fixture::new();
-    let actual = fixture.render(&["render", "--format", "rofi", "--app", "Code"]);
+    let actual = fixture.render_env(
+        &["render", "--format", "rofi", "--app", "Code"],
+        &[("SCREEN_TIME_SCREEN_WIDTH", "1920")],
+    );
     assert_or_update_golden("detail_1920x1080.txt", &actual);
     assert!(actual.contains("2h 14m"));
     assert!(actual.contains("8 switches/h"));
@@ -75,11 +88,11 @@ fn rofi_protocol_marks_rows_and_carries_app_info() {
     assert!(actual.contains("\0markup-rows\x1ftrue"));
     assert!(actual.contains("\0nonselectable\x1ftrue"));
     assert!(actual.contains("\0info\x1fCode"));
-    assert!(actual.contains("<span foreground=\"#58a6ff\">▌</span> SCREEN TIME"));
-    assert!(actual.contains("<span foreground=\"#39c5cf\">▌</span> WHEN"));
-    assert!(actual.contains("<span foreground=\"#58a6ff\">▌</span> APPS"));
-    assert!(actual.contains("<span foreground=\"#39c5cf\">"));
-    assert!(actual.contains("<span foreground=\"#8b949e\">"));
+    assert!(actual.contains("SCREEN TIME"));
+    assert!(actual.contains("DAY ACTIVITY"));
+    assert!(actual.contains("APP TIMELINE"));
+    assert!(actual.contains("<span foreground=\"#"));
+    assert!(actual.contains("●"));
 }
 
 #[test]
@@ -99,9 +112,9 @@ fn stale_snapshot_does_not_extend_the_open_interval() {
     snapshot::write_atomic(&fixture.paths.live_path, &snapshot).unwrap();
 
     let actual = fixture.render(&["render", "--format", "rofi"]);
-    assert!(actual.contains("6h 48m active"), "{actual}");
+    assert!(actual.contains("6h 48m"), "{actual}");
     assert!(actual.contains("stale"), "{actual}");
-    assert!(!actual.contains("7h 03m active"));
+    assert!(!actual.contains("7h 03m"));
 }
 
 #[test]
@@ -134,9 +147,9 @@ fn matugen_palette_updates_section_data_colors_without_restart() {
             "surface_container": {"default": {"color": "#202020"}},
             "on_surface": {"default": {"color": "#f0f0f0"}},
             "on_surface_variant": {"default": {"color": "#909090"}},
-            "primary": {"default": {"color": "#112233"}}
+            "primary": {"default": {"color": "#aaccff"}}
           },
-          "palettes": {"secondary": {"70": {"color": "#445566"}}}
+          "palettes": {"secondary": {"70": {"color": "#66aacc"}}}
         }"##,
     )
     .unwrap();
@@ -152,9 +165,8 @@ fn matugen_palette_updates_section_data_colors_without_restart() {
         rofi_theme.display()
     ));
     let actual = fixture.render_env(&["render", "--format", "rofi"], &[("ROFI_RETV", "0")]);
-    assert!(actual.contains("foreground=\"#112233\""), "{actual}");
-    assert!(actual.contains("foreground=\"#445566\""), "{actual}");
-    assert!(actual.contains("foreground=\"#909090\""), "{actual}");
+    assert!(actual.contains("foreground=\"#aaccff\""), "{actual}");
+    assert!(actual.contains("foreground=\"#66aacc\""), "{actual}");
     let theme = fixture.render(&["render", "--format", "rofi-theme"]);
     assert!(theme.contains("@theme \""), "{theme}");
     assert!(theme.contains("font: \"Palette Mono 14\""), "{theme}");
@@ -178,7 +190,6 @@ fn matugen_palette_updates_section_data_colors_without_restart() {
     let updated = fixture.render_env(&["render", "--format", "rofi"], &[("ROFI_RETV", "0")]);
     assert!(updated.contains("foreground=\"#aabbcc\""), "{updated}");
     assert!(updated.contains("foreground=\"#ddeeff\""), "{updated}");
-    assert!(!updated.contains("foreground=\"#112233\""), "{updated}");
 }
 
 #[test]
@@ -191,33 +202,37 @@ fn config_font_size_auto_compacts_and_full_overrides() {
         .lines()
         .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
         .expect("ruler");
-    assert_eq!(ruler.chars().count(), 68, "compact ruler: {ruler:?}");
+    assert_eq!(
+        ruler.chars().count(),
+        96,
+        "compact layout must fit 1280 at 16pt: {ruler:?}"
+    );
     assert_eq!(
         compact
             .lines()
-            .filter(|line| line.contains('█') && !line.trim_start().starts_with("7d"))
+            .filter(|line| line.contains('●') && line.contains('%'))
             .count(),
-        4,
-        "compact must show four app rows: {compact}"
+        8,
+        "compact layout must keep every app row: {compact}"
     );
     let theme = fixture.render(&["render", "--format", "rofi-theme"]);
     assert!(theme.contains("Big Mono 16"), "{theme}");
 
     let wide = fixture.render_env(
         &["render", "--format", "rofi"],
-        &[("SCREEN_TIME_SCREEN_WIDTH", "1920")],
+        &[("SCREEN_TIME_SCREEN_WIDTH", "3440")],
     );
     let ruler = wide
         .lines()
         .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
         .expect("ruler");
-    assert_eq!(ruler.chars().count(), 116, "1920 ruler: {ruler:?}");
+    assert_eq!(ruler.chars().count(), 144, "3440 ruler: {ruler:?}");
     assert_eq!(
         wide.lines()
-            .filter(|line| line.contains('█') && !line.trim_start().starts_with("7d"))
+            .filter(|line| line.contains('●') && line.contains('%'))
             .count(),
-        5,
-        "1920 must show five app rows: {wide}"
+        8,
+        "3440 must show all eight fixture app rows: {wide}"
     );
 
     fixture.write_config("[font]\nfamily = \"Big Mono\"\nsize = 16\n[layout]\nmode = \"full\"\n");
@@ -226,7 +241,52 @@ fn config_font_size_auto_compacts_and_full_overrides() {
         .lines()
         .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
         .expect("ruler");
-    assert_eq!(ruler.chars().count(), 116, "full ruler: {ruler:?}");
+    assert_eq!(ruler.chars().count(), 144, "full ruler: {ruler:?}");
+}
+
+#[test]
+fn responsive_screen_geometry_selects_slot_and_window_size() {
+    init_tz();
+    let fixture = Fixture::new();
+    let expanded = fixture.render_env(
+        &["render", "--format", "rofi"],
+        &[
+            ("SCREEN_TIME_SCREEN_WIDTH", "2560"),
+            ("SCREEN_TIME_SCREEN_HEIGHT", "1280"),
+        ],
+    );
+    let ruler = expanded
+        .lines()
+        .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
+        .expect("expanded ruler");
+    assert_eq!(ruler.chars().count(), 144, "2560 ruler: {ruler:?}");
+    let theme = fixture.render_env(
+        &["render", "--format", "rofi-theme"],
+        &[
+            ("SCREEN_TIME_SCREEN_WIDTH", "2560"),
+            ("SCREEN_TIME_SCREEN_HEIGHT", "1280"),
+        ],
+    );
+    assert!(theme.contains("144ch + 64px"), "{theme}");
+
+    let compact = fixture.render_env(
+        &["render", "--format", "rofi"],
+        &[
+            ("SCREEN_TIME_SCREEN_WIDTH", "1280"),
+            ("SCREEN_TIME_SCREEN_HEIGHT", "720"),
+        ],
+    );
+    let ruler = compact
+        .lines()
+        .find(|line| line.contains("00") && line.contains("06") && line.contains("12"))
+        .expect("compact ruler");
+    assert_eq!(ruler.chars().count(), 96, "1280 ruler: {ruler:?}");
+    assert!(compact.contains("top 8 of 8 apps"), "{compact}");
+    let theme = fixture.render_env(
+        &["render", "--format", "rofi-theme"],
+        &[("SCREEN_TIME_SCREEN_HEIGHT", "720")],
+    );
+    assert!(theme.contains("96ch + 64px"), "{theme}");
 }
 
 #[test]

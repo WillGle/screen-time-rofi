@@ -1,17 +1,21 @@
-▌ SCREEN TIME                                                                                     Sat 21 Nov · Today
- 6h 48m active   ▲ 36m vs usual at this time
- powered 12h 40m · span 07:05–17:15 · peak 10:30–12:00
- 7d ▆▇▇████  avg 6h 12m
+ SCREEN TIME
+ 6h 48m active
+ Today · Saturday, 21 November 2026
+ Top app ● Code 2h14m · peak 10:30–12:00
 
-▌ WHEN
-                    00                      06                      12                      18                    24
- POWER     12h40m                     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
-▌ APPS
- Code       2h14m                               ██      ██████  ██      ██  ██  ██    ████                          
- Firefox    1h32m                                   ████      ██    ██                                              
- Terminal     48m                                       ██                ██                                        
- Notes        40m                               ████                                                                
- Slack        32m                                               ██                ██                                
- +3 apps    1h02m                                               ▒▒▒▒  ▒▒      ▒▒                                    
+ ▌ DAY ACTIVITY                                                                                                                 peak 10:30–12:00
+                        00      02      04      06      08      10      12      14      16      18      20      22    24                        
+                                                    ████████████████████████████████████  ████                                                  
+    ■ POWER                               ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                             12h40m               
+
+ ▌ APP TIMELINE                                                                                                         top 8 of 8 apps · 6h 48m
+  1 ● Code                                          ██      ██████  ██      ██  ██  ██    ████                              2h14m   33%     Work
+  2 ● Firefox                                           ████      ██    ██                                                  1h32m   23%  Browser
+  3 ● Terminal                                              ██                ██                                              48m   12%     Work
+  4 ● Notes                                         ████                                                                      40m   10%  Unknown
+  5 ● Slack                                                         ██                ██                                      32m    8%     Comm
+  6 ● Music                                                               ██                                                  22m    5%  Leisure
+  7 ● Gimp                                                          ████                                                      20m    5%  Leisure
+  8 ● Zoom                                                                        ██                                          20m    5%     Comm
 
  ←/→ day   T today   R refresh   ↵ detail   esc close
