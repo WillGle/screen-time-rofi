@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use chrono::NaiveDate;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
+use serde::{Deserialize, Serialize};
 
+use crate::config::RetentionConfig;
 use crate::migrations::{self, CURRENT_VERSION};
 use crate::sessions::Session;
 use crate::timeutil::{self, SLOT_COUNT};
@@ -87,6 +89,64 @@ pub struct DailyTotal {
     pub seconds: i64,
 }
 
+/// Resolved retention policy. `None` means keep that category forever.
+/// This is the only thing `Database::retention` consults; an all-`None`
+/// policy performs no SQL at all.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    pub events_days: Option<u32>,
+    pub sessions_days: Option<u32>,
+    pub aggregates_days: Option<u32>,
+    pub power_days: Option<u32>,
+}
+
+impl RetentionPolicy {
+    pub fn disabled() -> Self {
+        Self::default()
+    }
+
+    pub fn from_config(config: &RetentionConfig) -> Self {
+        Self {
+            events_days: config.events_days.filter(|days| *days > 0),
+            sessions_days: config.sessions_days.filter(|days| *days > 0),
+            aggregates_days: config.aggregates_days.filter(|days| *days > 0),
+            power_days: config.power_days.filter(|days| *days > 0),
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.events_days.is_some()
+            || self.sessions_days.is_some()
+            || self.aggregates_days.is_some()
+            || self.power_days.is_some()
+    }
+
+    pub fn summary(&self) -> String {
+        if !self.is_enabled() {
+            return "disabled".to_owned();
+        }
+        [
+            ("events", self.events_days),
+            ("sessions", self.sessions_days),
+            ("aggregates", self.aggregates_days),
+            ("power", self.power_days),
+        ]
+        .iter()
+        .filter_map(|(name, days)| days.map(|days| format!("{name}={days}d")))
+        .collect::<Vec<_>>()
+        .join(",")
+    }
+}
+
+/// Stable summary used to prove that an update did not lose data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DataFingerprint {
+    pub counts: BTreeMap<String, i64>,
+    pub session_seconds: i64,
+    pub app_keys: Vec<String>,
+    pub app_key_hash: String,
+}
+
 pub struct Database {
     conn: Connection,
     path: PathBuf,
@@ -114,6 +174,31 @@ impl Database {
             create_migration_backup(&conn, &backup_dir, version)?;
         }
         migrations::migrate(&mut conn)?;
+        Ok(Self {
+            conn,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Open an existing database for `VACUUM INTO` snapshots. SQLite
+    /// classifies `VACUUM INTO` as a write operation, so a read-only handle
+    /// cannot be used; no statement other than the snapshot is executed.
+    pub fn open_snapshot_source(path: &Path) -> Result<Self> {
+        if !path.is_file() {
+            bail!("database {} does not exist", path.display());
+        }
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .with_context(|| format!("cannot open database {}", path.display()))?;
+        conn.busy_timeout(std::time::Duration::from_millis(5_000))?;
+        let version = migrations::schema_version(&conn)?;
+        if version == 0 {
+            bail!("database {} has no schema yet", path.display());
+        }
+        if version > CURRENT_VERSION {
+            bail!(
+                "database schema version {version} is newer than this binary (supports {CURRENT_VERSION})"
+            );
+        }
         Ok(Self {
             conn,
             path: path.to_path_buf(),
@@ -463,39 +548,59 @@ impl Database {
         self.meta("last_commit_at")
     }
 
-    pub fn retention(&mut self, now_date: NaiveDate, now_ts: i64) -> Result<RetentionResult> {
-        let events_cutoff = now_ts - 30 * 86_400;
-        let sessions_cutoff = now_date
-            .checked_sub_days(chrono::Days::new(90))
-            .unwrap_or(now_date)
-            .format("%Y-%m-%d")
-            .to_string();
-        let aggregates_cutoff = now_date
-            .checked_sub_days(chrono::Days::new(365))
-            .unwrap_or(now_date)
-            .format("%Y-%m-%d")
-            .to_string();
-        let power_cutoff = now_ts - 365 * 86_400;
+    /// Apply only the categories enabled in `policy`. A disabled policy runs
+    /// no `DELETE` statements and returns all-zero counts.
+    pub fn retention(
+        &mut self,
+        policy: &RetentionPolicy,
+        now_date: NaiveDate,
+        now_ts: i64,
+    ) -> Result<RetentionResult> {
+        if !policy.is_enabled() {
+            return Ok(RetentionResult::default());
+        }
+        let date_cutoff = |days: u32| {
+            now_date
+                .checked_sub_days(chrono::Days::new(days as u64))
+                .unwrap_or(now_date)
+                .format("%Y-%m-%d")
+                .to_string()
+        };
+        let ts_cutoff = |days: u32| now_ts - i64::from(days) * 86_400;
 
         let tx = self.conn.transaction()?;
-        let events = tx.execute("DELETE FROM events WHERE ts < ?1", params![events_cutoff])?;
-        let sessions = tx.execute(
-            "DELETE FROM sessions WHERE date < ?1",
-            params![sessions_cutoff],
-        )?;
-        let daily_app = tx.execute(
-            "DELETE FROM daily_app WHERE date < ?1",
-            params![aggregates_cutoff],
-        )?;
-        let daily_slots = tx.execute(
-            "DELETE FROM daily_slots WHERE date < ?1",
-            params![aggregates_cutoff],
-        )?;
-        let power = tx.execute(
-            "DELETE FROM power_sessions
-             WHERE end_ts IS NOT NULL AND end_ts < ?1",
-            params![power_cutoff],
-        )?;
+        let events = match policy.events_days {
+            Some(days) => {
+                tx.execute("DELETE FROM events WHERE ts < ?1", params![ts_cutoff(days)])?
+            }
+            None => 0,
+        };
+        let sessions = match policy.sessions_days {
+            Some(days) => tx.execute(
+                "DELETE FROM sessions WHERE date < ?1",
+                params![date_cutoff(days)],
+            )?,
+            None => 0,
+        };
+        let (daily_app, daily_slots) = match policy.aggregates_days {
+            Some(days) => {
+                let cutoff = date_cutoff(days);
+                let daily_app =
+                    tx.execute("DELETE FROM daily_app WHERE date < ?1", params![cutoff])?;
+                let daily_slots =
+                    tx.execute("DELETE FROM daily_slots WHERE date < ?1", params![cutoff])?;
+                (daily_app, daily_slots)
+            }
+            None => (0, 0),
+        };
+        let power = match policy.power_days {
+            Some(days) => tx.execute(
+                "DELETE FROM power_sessions
+                 WHERE end_ts IS NOT NULL AND end_ts < ?1",
+                params![ts_cutoff(days)],
+            )?,
+            None => 0,
+        };
         tx.commit()?;
         Ok(RetentionResult {
             events,
@@ -503,6 +608,63 @@ impl Database {
             daily_app,
             daily_slots,
             power_sessions: power,
+        })
+    }
+
+    pub fn schema_version(&self) -> Result<i64> {
+        migrations::schema_version(&self.conn)
+    }
+
+    /// Row counts for every data table, in a stable order.
+    pub fn table_counts(&self) -> Result<BTreeMap<String, i64>> {
+        let mut counts = BTreeMap::new();
+        for table in [
+            "apps",
+            "events",
+            "sessions",
+            "daily_app",
+            "daily_slots",
+            "power_sessions",
+            "meta",
+        ] {
+            let count: i64 =
+                self.conn
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+            counts.insert(table.to_owned(), count);
+        }
+        Ok(counts)
+    }
+
+    pub fn total_session_seconds(&self) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(SUM(seconds), 0) FROM sessions",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn app_keys(&self) -> Result<Vec<String>> {
+        let mut statement = self.conn.prepare("SELECT key FROM apps ORDER BY key")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut keys = Vec::new();
+        for row in rows {
+            keys.push(row?);
+        }
+        Ok(keys)
+    }
+
+    pub fn fingerprint(&self) -> Result<DataFingerprint> {
+        let counts = self.table_counts()?;
+        let session_seconds = self.total_session_seconds()?;
+        let app_keys = self.app_keys()?;
+        let app_key_hash = crate::sha256::hex_digest(app_keys.join("\n").as_bytes());
+        Ok(DataFingerprint {
+            counts,
+            session_seconds,
+            app_keys,
+            app_key_hash,
         })
     }
 
@@ -718,8 +880,12 @@ mod tests {
                 params![old_date, old, old + 60, recent_date, recent, recent + 60],
             )
             .unwrap();
+        let policy = RetentionPolicy {
+            events_days: Some(30),
+            ..RetentionPolicy::disabled()
+        };
         let result = db
-            .retention(timeutil::today(timeutil::now()), recent)
+            .retention(&policy, timeutil::today(timeutil::now()), recent)
             .unwrap();
         assert_eq!(result.events, 1);
         let remaining: i64 = db
@@ -727,6 +893,113 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
             .unwrap();
         assert_eq!(remaining, 1);
+    }
+
+    #[test]
+    fn disabled_retention_deletes_nothing() {
+        let (_dir, mut db) = open_test_db();
+        let now = timeutil::now().timestamp();
+        let old = now - 900 * 86_400;
+        let old_date = timeutil::date_of(old).format("%Y-%m-%d").to_string();
+        db.conn
+            .execute(
+                "INSERT INTO events(ts, kind, boot_id) VALUES(?1, 'focus', 'b')",
+                params![old],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO sessions(date, app, start_ts, end_ts, seconds)
+                 VALUES(?1, 'Old', ?2, ?3, 60)",
+                params![old_date, old, old + 60],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO daily_app(date, app, seconds, sessions) VALUES(?1, 'Old', 60, 1)",
+                params![old_date],
+            )
+            .unwrap();
+        let result = db
+            .retention(
+                &RetentionPolicy::disabled(),
+                timeutil::today(timeutil::now()),
+                now,
+            )
+            .unwrap();
+        assert_eq!(result.events, 0);
+        assert_eq!(result.sessions, 0);
+        assert_eq!(result.daily_app, 0);
+        assert_eq!(result.power_sessions, 0);
+        assert_eq!(db.counts().unwrap(), (1, 1));
+    }
+
+    #[test]
+    fn retention_categories_are_independent() {
+        let (_dir, mut db) = open_test_db();
+        let now = timeutil::now().timestamp();
+        let old = now - 40 * 86_400;
+        let old_date = timeutil::date_of(old).format("%Y-%m-%d").to_string();
+        db.conn
+            .execute(
+                "INSERT INTO events(ts, kind, boot_id) VALUES(?1, 'focus', 'b')",
+                params![old],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO sessions(date, app, start_ts, end_ts, seconds)
+                 VALUES(?1, 'Old', ?2, ?3, 60)",
+                params![old_date, old, old + 60],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO daily_app(date, app, seconds, sessions) VALUES(?1, 'Old', 60, 1)",
+                params![old_date],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO daily_slots(date, app, slot, seconds) VALUES(?1, 'Old', 1, 60)",
+                params![old_date],
+            )
+            .unwrap();
+        let id = db.start_power_session(old, "old-boot").unwrap();
+        db.close_power_session(id, old + 60, "shutdown").unwrap();
+
+        let policy = RetentionPolicy {
+            events_days: Some(30),
+            ..RetentionPolicy::disabled()
+        };
+        let result = db
+            .retention(&policy, timeutil::today(timeutil::now()), now)
+            .unwrap();
+        assert_eq!(result.events, 1);
+        assert_eq!(result.sessions, 0);
+        assert_eq!(result.daily_app, 0);
+        assert_eq!(result.power_sessions, 0);
+        assert_eq!(db.counts().unwrap(), (0, 1));
+    }
+
+    #[test]
+    fn fingerprint_tracks_counts_seconds_and_app_keys() {
+        let (_dir, mut db) = open_test_db();
+        let date = NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (day_start, _) = timeutil::day_bounds(date);
+        let session = Session::new(
+            "Code",
+            "2026-11-21".to_owned(),
+            day_start + 10,
+            day_start + 70,
+        )
+        .unwrap();
+        db.commit_batch(&[], &[session], day_start + 70).unwrap();
+        let fingerprint = db.fingerprint().unwrap();
+        assert_eq!(fingerprint.counts["sessions"], 1);
+        assert_eq!(fingerprint.session_seconds, 60);
+        assert_eq!(fingerprint.app_keys, vec!["Code".to_owned()]);
+        assert_eq!(fingerprint.app_key_hash.len(), 64);
     }
 
     #[test]

@@ -8,7 +8,8 @@ use anyhow::Result;
 use chrono::{DateTime, Local, NaiveDate};
 
 use crate::capture::{self, Event};
-use crate::db::{Database, EventRecord};
+use crate::config::Config;
+use crate::db::{Database, EventRecord, RetentionPolicy};
 use crate::idle;
 use crate::paths::{self, Paths};
 use crate::sessions::{self, Session};
@@ -29,13 +30,35 @@ pub fn run() -> Result<()> {
     let now_ts = now.timestamp();
     let today = now.date_naive();
 
+    let (config, config_error) = Config::load_default_lenient();
+    if let Some(error) = config_error {
+        eprintln!("screen-time: warning: {error:#}; using keep-all retention");
+    }
+    let retention = RetentionPolicy::from_config(&config.retention);
+    if retention.is_enabled() {
+        println!("screen-time: retention {}", retention.summary());
+    } else {
+        eprintln!("screen-time: retention disabled (keep all history)");
+    }
+
     recover_previous_power(&mut db, &boot_id, now_ts)?;
     let power_id = db.start_power_session(now_ts, &boot_id)?;
     db.set_meta("boot_id", &boot_id)?;
     db.set_meta("daemon_pid", &std::process::id().to_string())?;
     db.set_meta("daemon_started_at", &timeutil::rfc3339(now_ts))?;
     db.set_meta("clean_shutdown", "0")?;
-    let _ = db.retention(today, now_ts);
+    match db.retention(&retention, today, now_ts) {
+        Ok(result) if retention.is_enabled() => eprintln!(
+            "screen-time: retention removed {} events, {} sessions, {} daily-app rows, {} daily-slot rows, {} power sessions",
+            result.events,
+            result.sessions,
+            result.daily_app,
+            result.daily_slots,
+            result.power_sessions
+        ),
+        Ok(_) => {}
+        Err(error) => eprintln!("screen-time: retention failed: {error:#}"),
+    }
     db.commit_batch(
         &[EventRecord {
             ts: now_ts,
@@ -50,7 +73,7 @@ pub fn run() -> Result<()> {
     db.set_meta("last_commit_at", &timeutil::rfc3339(now_ts))?;
 
     let day = db.load_day_closed(today, now_ts)?;
-    let mut tracker = Tracker::new(today, day, now_ts, boot_id.clone(), now_ts);
+    let mut tracker = Tracker::new(today, day, now_ts, boot_id.clone(), now_ts, retention);
     tracker.write_snapshot(&paths, now_ts);
 
     let (tx, rx) = mpsc::channel();
@@ -161,6 +184,7 @@ struct Tracker {
     last_snapshot_ts: i64,
     boot_id: String,
     power_start_ts: i64,
+    retention: RetentionPolicy,
 }
 
 impl Tracker {
@@ -170,6 +194,7 @@ impl Tracker {
         last_commit_ts: i64,
         boot_id: String,
         power_start_ts: i64,
+        retention: RetentionPolicy,
     ) -> Self {
         Self {
             date,
@@ -183,6 +208,7 @@ impl Tracker {
             last_snapshot_ts: 0,
             boot_id,
             power_start_ts,
+            retention,
         }
     }
 
@@ -409,7 +435,23 @@ impl Tracker {
             }
         }
         self.record_event(now_ts, "rollover", None, "begin");
-        let _ = db.retention(new_date, now_ts);
+        let (config, config_error) = Config::load_default_lenient();
+        if let Some(error) = config_error {
+            eprintln!("screen-time: warning: {error:#}; using keep-all retention");
+        }
+        self.retention = RetentionPolicy::from_config(&config.retention);
+        match db.retention(&self.retention, new_date, now_ts) {
+            Ok(result) if self.retention.is_enabled() => eprintln!(
+                "screen-time: retention removed {} events, {} sessions, {} daily-app rows, {} daily-slot rows, {} power sessions",
+                result.events,
+                result.sessions,
+                result.daily_app,
+                result.daily_slots,
+                result.power_sessions
+            ),
+            Ok(_) => {}
+            Err(error) => eprintln!("screen-time: retention failed during rollover: {error:#}"),
+        }
         self.write_snapshot(paths, now_ts);
         Ok(())
     }
@@ -486,6 +528,7 @@ mod tests {
     use crate::sessions::Session;
     use crate::timeutil::SLOT_COUNT;
     use rusqlite::params;
+    use std::fs;
     use tempfile::tempdir;
 
     fn base() -> i64 {
@@ -501,6 +544,7 @@ mod tests {
             base(),
             "boot".to_owned(),
             base(),
+            RetentionPolicy::disabled(),
         )
     }
 
@@ -586,6 +630,7 @@ mod tests {
             day_start,
             "boot".to_owned(),
             day_start - 3_600,
+            RetentionPolicy::disabled(),
         );
         let snapshot = tracker.snapshot(day_start + 60);
         let start = snapshot.powered_open_start_ts().unwrap();
@@ -615,6 +660,7 @@ mod tests {
             start,
             "boot".to_owned(),
             start,
+            RetentionPolicy::disabled(),
         );
         tracker.record_closed_session(
             Session::new("Code", "2026-11-21".to_owned(), start + 100, start + 200).unwrap(),
@@ -681,6 +727,7 @@ mod tests {
             day_start,
             "boot".to_owned(),
             day_start,
+            RetentionPolicy::disabled(),
         );
         tracker.on_focus(Some("Code".to_owned()), day_end - 600);
         let next = date.succ_opt().unwrap();
@@ -691,5 +738,90 @@ mod tests {
         assert_eq!(sessions[0].end_ts, day_end);
         assert_eq!(tracker.open.as_ref().unwrap().app, "Code");
         assert_eq!(tracker.open.as_ref().unwrap().start_ts, day_end);
+    }
+
+    #[test]
+    fn rollover_applies_enabled_retention() {
+        struct EnvGuard {
+            home: Option<std::ffi::OsString>,
+            config_home: Option<std::ffi::OsString>,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                // SAFETY: this test owns these variables for its duration.
+                unsafe {
+                    match &self.home {
+                        Some(value) => std::env::set_var("HOME", value),
+                        None => std::env::remove_var("HOME"),
+                    }
+                    match &self.config_home {
+                        Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                        None => std::env::remove_var("XDG_CONFIG_HOME"),
+                    }
+                }
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        let config_home = dir.path().join("config");
+        fs::create_dir_all(config_home.join("screen-time")).unwrap();
+        fs::write(
+            config_home.join("screen-time").join("config.toml"),
+            "[retention]\nevents_days = 1\n",
+        )
+        .unwrap();
+        let _guard = EnvGuard {
+            home: std::env::var_os("HOME"),
+            config_home: std::env::var_os("XDG_CONFIG_HOME"),
+        };
+        // SAFETY: no other test in this binary reads these variables.
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        }
+
+        let paths = Paths {
+            state_dir: dir.path().to_path_buf(),
+            db_path: dir.path().join("screen-time.db"),
+            runtime_dir: dir.path().to_path_buf(),
+            live_path: dir.path().join("live.json"),
+            ui_state_path: dir.path().join("ui.json"),
+            backups_dir: dir.path().join("backups"),
+            migration_backups_dir: dir.path().join("migration-backups"),
+        };
+        paths.ensure().unwrap();
+        let mut db = Database::open_write(&paths.db_path, None).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (day_start, day_end) = timeutil::day_bounds(date);
+        db.commit_batch(
+            &[EventRecord {
+                ts: day_start - 2 * 86_400,
+                kind: "focus".to_owned(),
+                app: Some("Old".to_owned()),
+                state: Some("begin".to_owned()),
+                boot_id: "boot".to_owned(),
+            }],
+            &[],
+            day_start - 2 * 86_400,
+        )
+        .unwrap();
+        let mut tracker = Tracker::new(
+            date,
+            crate::db::DayData::new(date),
+            day_start,
+            "boot".to_owned(),
+            day_start,
+            RetentionPolicy::disabled(),
+        );
+        tracker.ensure_day(&paths, &mut db, day_end + 60).unwrap();
+        let remaining: i64 = db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE kind = 'focus'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 }

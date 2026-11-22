@@ -6,13 +6,92 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 /// Optional user configuration. A missing file is valid and equivalent to
-/// `Config::default()` (auto theme mode, automatic layout, default font).
+/// `Config::default()` (auto theme mode, automatic layout, default font,
+/// retention disabled).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub layout: LayoutConfig,
+    pub retention: RetentionConfig,
+    pub storage: StorageConfig,
+}
+
+/// Optional history pruning. Every field is opt-in: a missing field or `0`
+/// keeps that category forever.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct RetentionConfig {
+    /// Raw focus/idle/boot events.
+    pub events_days: Option<u32>,
+    /// Closed session rows.
+    pub sessions_days: Option<u32>,
+    /// Daily per-app and per-slot aggregates.
+    pub aggregates_days: Option<u32>,
+    /// Closed power sessions.
+    pub power_days: Option<u32>,
+}
+
+impl RetentionConfig {
+    /// Categories with a positive day count. `None` and `0` mean keep all.
+    pub fn enabled_days(&self) -> [(&'static str, Option<u32>); 4] {
+        [
+            ("events", normalize_days(self.events_days)),
+            ("sessions", normalize_days(self.sessions_days)),
+            ("aggregates", normalize_days(self.aggregates_days)),
+            ("power", normalize_days(self.power_days)),
+        ]
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.enabled_days().iter().all(|(_, days)| days.is_none())
+    }
+
+    /// A short stable summary used by `doctor` and log lines.
+    pub fn summary(&self) -> String {
+        if self.is_disabled() {
+            return "disabled".to_owned();
+        }
+        self.enabled_days()
+            .iter()
+            .filter_map(|(name, days)| days.map(|days| format!("{name}={days}d")))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn normalize_days(days: Option<u32>) -> Option<u32> {
+    days.filter(|days| *days > 0)
+}
+
+/// Size thresholds used by `doctor` and the installer's disk check. These do
+/// not delete anything; they only surface growth and block an update that
+/// cannot fit two backups.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct StorageConfig {
+    pub warn_db_mib: u64,
+    pub hard_db_mib: u64,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            warn_db_mib: 250,
+            hard_db_mib: 1024,
+        }
+    }
+}
+
+impl StorageConfig {
+    pub fn warn_db_mib(&self) -> u64 {
+        self.warn_db_mib.max(1)
+    }
+
+    pub fn hard_db_mib(&self) -> u64 {
+        self.hard_db_mib.max(self.warn_db_mib.max(1))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -69,6 +148,15 @@ pub enum LayoutMode {
 impl Config {
     pub fn load_default() -> Result<Self> {
         Self::load(&default_config_path())
+    }
+
+    /// Load the default config, falling back to keep-all retention when the
+    /// file is unreadable or malformed. The error is returned for logging.
+    pub fn load_default_lenient() -> (Self, Option<anyhow::Error>) {
+        match Self::load_default() {
+            Ok(config) => (config, None),
+            Err(error) => (Self::default(), Some(error)),
+        }
     }
 
     pub fn load(path: &Path) -> Result<Self> {
@@ -231,14 +319,14 @@ mod tests {
 
     #[test]
     fn expands_tilde_and_relative_paths() {
-        let home = Path::new("/home/will");
+        let home = Path::new("/home/user");
         assert_eq!(
             expand_path("~/.config/x", home),
-            PathBuf::from("/home/will/.config/x")
+            PathBuf::from("/home/user/.config/x")
         );
         assert_eq!(
             expand_path("relative/x", home),
-            PathBuf::from("/home/will/relative/x")
+            PathBuf::from("/home/user/relative/x")
         );
         assert_eq!(expand_path("/abs/x", home), PathBuf::from("/abs/x"));
     }
@@ -249,5 +337,53 @@ mod tests {
             toml::from_str("[theme]\nmode = \"bogus\"\n[layout]\nmode = \"wide\"\n").unwrap();
         assert_eq!(config.theme_mode(), ThemeMode::Auto);
         assert_eq!(config.layout_mode(), LayoutMode::Auto);
+    }
+
+    #[test]
+    fn retention_defaults_to_disabled() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(config.retention.is_disabled());
+        assert_eq!(config.retention.summary(), "disabled");
+    }
+
+    #[test]
+    fn retention_zero_means_keep_forever() {
+        let config: Config = toml::from_str(
+            "[retention]\nevents_days = 0\nsessions_days = 0\naggregates_days = 0\npower_days = 0\n",
+        )
+        .unwrap();
+        assert!(config.retention.is_disabled());
+        assert_eq!(config.retention.summary(), "disabled");
+    }
+
+    #[test]
+    fn retention_parses_each_category() {
+        let config: Config = toml::from_str(
+            "[retention]\nevents_days = 7\nsessions_days = 30\naggregates_days = 365\npower_days = 90\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.retention.summary(),
+            "events=7d,sessions=30d,aggregates=365d,power=90d"
+        );
+    }
+
+    #[test]
+    fn storage_thresholds_have_safe_defaults() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.storage.warn_db_mib(), 250);
+        assert_eq!(config.storage.hard_db_mib(), 1024);
+        let config: Config =
+            toml::from_str("[storage]\nwarn_db_mib = 10\nhard_db_mib = 20\n").unwrap();
+        assert_eq!(config.storage.warn_db_mib(), 10);
+        assert_eq!(config.storage.hard_db_mib(), 20);
+    }
+
+    #[test]
+    fn invalid_config_is_a_clear_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[retention\nevents_days = 1\n").unwrap();
+        assert!(Config::load(&path).is_err());
     }
 }
