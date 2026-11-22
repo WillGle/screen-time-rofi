@@ -458,6 +458,9 @@ refuse_nix_managed_path() {
     [ -L "$path" ] || return 0
     local target
     target="$(readlink -f -- "$path" 2>/dev/null || true)"
+    # On a non-Nix host /nix/store may not exist, so readlink -f can fail.
+    # Fall back to the raw link target and still refuse it.
+    [ -n "$target" ] || target="$(readlink -- "$path" 2>/dev/null || true)"
     case "$target" in
         /nix/store/*)
             die "$path is managed by Nix/Home Manager. Update the flake input instead of using install.sh."
@@ -1174,6 +1177,7 @@ refuse_nix_update_units() {
         if [ -L "$path" ]; then
             local target
             target="$(readlink -f -- "$path" 2>/dev/null || true)"
+            [ -n "$target" ] || target="$(readlink -- "$path" 2>/dev/null || true)"
             case "$target" in
                 /nix/store/*)
                     die "refusing to create update units: $path is Nix/Home Manager-owned"
