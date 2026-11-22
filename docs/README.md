@@ -3,20 +3,9 @@
 ## 1. App and installation
 
 - [User guide](USER_GUIDE.md) — overview, distro installation, configuration, and usage.
-- [Installer design](GITHUB_INSTALLER.md) — release packaging and install lifecycle.
-
-## 2. Experiments and comparisons
-
 - [Evaluation](EVALUATION.md) — visual comparison, benchmarks, and Linux app comparisons.
-- [Resource benchmark](ROFI_RESOURCE_BENCHMARK.md) — raw comparison and reproduction.
-- [Final report](FINAL_REPORT.md) — milestone evidence and measurements.
-- [Storage research](SCREEN_TIME_STORAGE_ARCHITECTURE.md) — storage and write path.
-- [UI research](SCREEN_TIME_ROFI_UI.md) — market scan and design experiments.
-- [UI specification](SCREEN_TIME_UI_SPEC.md) — original v1 design.
-- [Decisions](DECISIONS.md) — implementation choices and spec resolutions.
-- [V1 goal](SCREEN_TIME_V1_GOAL.md) — execution plan and milestones.
 
-### Reproduce development checks
+## 2. Reproduce development checks
 
 ```bash
 cargo fmt --check
@@ -36,3 +25,6 @@ integration tests cover Matugen-over-static, corrupt-palette fallback, config
 overrides, generated Rofi themes, and live palette changes on the next render.
 Charts under `docs/charts/` are generated from `docs/benchmarks/*.json` by
 `scripts/render-evaluation-charts.py`.
+
+Internal decisions, design notes, and development reports stay in the local
+`docs/internal/` directory and are gitignored.
