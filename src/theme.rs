@@ -46,7 +46,14 @@ impl Theme {
     /// Resolve the theme on every render. Never cached: a palette or font
     /// change applies on the next Rofi open, with no daemon restart.
     pub fn load() -> Self {
-        let config = Config::load_default().unwrap_or_default();
+        Self::load_with_mode(None)
+    }
+
+    pub(crate) fn load_with_mode(mode: Option<&str>) -> Self {
+        let mut config = Config::load_default().unwrap_or_default();
+        if let Some(mode) = mode {
+            config.theme.mode = Some(mode.to_owned());
+        }
         Self::resolve(&config)
     }
 

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::RenderArgs;
 use crate::paths::Paths;
 use crate::render;
+use crate::theme::Theme;
 use crate::timeutil;
 use crate::view;
 
@@ -16,6 +17,7 @@ use crate::view;
 pub struct UiState {
     pub date: Option<String>,
     pub app: Option<String>,
+    pub theme: Option<String>,
 }
 
 pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Result<String> {
@@ -26,10 +28,11 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
     let today = now.date_naive();
     let mut state = read_state(paths).unwrap_or_default();
 
-    if retv == 0 {
+    if retv == 0 && !reopening() {
         state = UiState {
             date: None,
             app: None,
+            theme: None,
         };
         if let Some(date) = &args.date {
             state.date = Some(date.clone());
@@ -74,6 +77,19 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             16 => {
                 // Uppercase R refresh: keep the viewed date.
             }
+            17..=20 => {
+                if let Some(request) = std::env::var_os("SCREEN_TIME_ROFI_THEME_REQUEST") {
+                    state.theme = match retv {
+                        17 => Some("nord".into()),
+                        18 => Some("solarized".into()),
+                        19 => Some("gruvbox".into()),
+                        _ => None,
+                    };
+                    write_state(paths, &state)?;
+                    fs::write(&request, b"reopen")?;
+                    return Ok(String::new());
+                }
+            }
             _ => {}
         }
         write_state(paths, &state)?;
@@ -85,17 +101,32 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
         .and_then(|value| timeutil::parse_date(value).ok())
         .unwrap_or(today)
         .min(today);
+    let theme = Theme::load_with_mode(state.theme.as_deref());
     let output = match state.app.as_deref() {
         Some(app) if !app.is_empty() => {
             let detail = view::load_detail(paths, date, app, now)?;
-            render::render_detail(&detail, render::OutputMode::Rofi)
+            render::render_detail_with_theme(&detail, render::OutputMode::Rofi, &theme)
         }
         _ => {
             let day = view::load_main(paths, date, now)?;
-            render::render_main(&day, render::OutputMode::Rofi)
+            render::render_main_with_theme(&day, render::OutputMode::Rofi, &theme)
         }
     };
     Ok(output)
+}
+
+pub(crate) fn launcher_theme() -> Result<Theme> {
+    if reopening() {
+        let paths = Paths::resolve()?;
+        let state = read_state(&paths)?;
+        Ok(Theme::load_with_mode(state.theme.as_deref()))
+    } else {
+        Ok(Theme::load())
+    }
+}
+
+fn reopening() -> bool {
+    std::env::var_os("SCREEN_TIME_ROFI_REOPEN").is_some()
 }
 
 fn shift_date(state: &UiState, today: NaiveDate, delta: i64) -> String {
@@ -177,6 +208,7 @@ mod tests {
         let mut state = UiState {
             date: Some("2026-11-21".to_owned()),
             app: None,
+            theme: None,
         };
         assert_eq!(shift_date(&state, today, 1), "2026-11-21");
         assert_eq!(shift_date(&state, today, -1), "2026-11-20");

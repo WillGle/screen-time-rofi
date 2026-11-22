@@ -67,7 +67,7 @@ fn run_render(args: RenderArgs) -> Result<()> {
         );
     }
     if args.format == "rofi-theme" {
-        print!("{}", crate::theme::Theme::load().rofi_rasi());
+        print!("{}", ui::launcher_theme()?.rofi_rasi());
         return Ok(());
     }
     if let Some(now) = &args.now {

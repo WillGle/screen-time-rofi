@@ -60,41 +60,65 @@ fi
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 theme_dir="${runtime_dir}/screen-time"
 theme_file="${theme_dir}/rofi-theme.rasi"
-theme_args=()
-if mkdir -p "$theme_dir" 2>/dev/null; then
-    theme_tmp=$(mktemp "${theme_dir}/rofi-theme.XXXXXX" 2>/dev/null || true)
-    if [ -n "$theme_tmp" ]; then
-        if "$dir/screen-time" render --format rofi-theme >"$theme_tmp" 2>/dev/null \
-            && [ -s "$theme_tmp" ]; then
-            chmod 600 "$theme_tmp"
-            mv -f -- "$theme_tmp" "$theme_file"
-            theme_args=(-theme "$theme_file")
-        else
-            rm -f -- "$theme_tmp"
-        fi
-    fi
-fi
-if [ "${#theme_args[@]}" -eq 0 ]; then
-    theme=${ROFI_THEME:-${SCREEN_TIME_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}}
-    if [ -r "$theme" ]; then
-        theme_args=(-theme "$theme")
-    fi
+unset SCREEN_TIME_ROFI_THEME_REQUEST SCREEN_TIME_ROFI_REOPEN
+theme_request=$(mktemp "${TMPDIR:-/tmp}/screen-time-theme-request.XXXXXX" 2>/dev/null || true)
+if [ -n "$theme_request" ]; then
+    export SCREEN_TIME_ROFI_THEME_REQUEST="$theme_request"
+    trap 'rm -f -- "$theme_request"' EXIT
 fi
 
-exec rofi \
-    -show screen-time \
-    -modes "screen-time:$self" \
-    -pid "${ROFI_PIDFILE:-${XDG_RUNTIME_DIR:-/tmp}/rofi-screen-time.pid}" \
-    -selected-row 8 \
-    -normal-window \
-    -kb-move-char-back "Alt+Left" \
-    -kb-move-char-forward "Alt+Right" \
-    -kb-remove-char-back "Alt+BackSpace" \
-    -kb-custom-1 "Left" \
-    -kb-custom-2 "Right" \
-    -kb-custom-3 "t" \
-    -kb-custom-4 "r" \
-    -kb-custom-5 "BackSpace" \
-    -kb-custom-6 "T" \
-    -kb-custom-7 "R" \
-    "${theme_args[@]}"
+run_popup() {
+    theme_args=()
+    if mkdir -p "$theme_dir" 2>/dev/null; then
+        theme_tmp=$(mktemp "${theme_dir}/rofi-theme.XXXXXX" 2>/dev/null || true)
+        if [ -n "$theme_tmp" ]; then
+            if "$dir/screen-time" render --format rofi-theme >"$theme_tmp" 2>/dev/null \
+                && [ -s "$theme_tmp" ]; then
+                chmod 600 "$theme_tmp"
+                mv -f -- "$theme_tmp" "$theme_file"
+                theme_args=(-theme "$theme_file")
+            else
+                rm -f -- "$theme_tmp"
+            fi
+        fi
+    fi
+    if [ "${#theme_args[@]}" -eq 0 ]; then
+        theme=${ROFI_THEME:-${SCREEN_TIME_THEME:-${XDG_DATA_HOME:-"$HOME/.local/share"}/screen-time/rofi/screen-time.rasi}}
+        if [ -r "$theme" ]; then
+            theme_args=(-theme "$theme")
+        fi
+    fi
+
+    rofi \
+        -show screen-time \
+        -modes "screen-time:$self" \
+        -pid "${ROFI_PIDFILE:-${XDG_RUNTIME_DIR:-/tmp}/rofi-screen-time.pid}" \
+        -selected-row 8 \
+        -normal-window \
+        -kb-move-char-back "Alt+Left" \
+        -kb-move-char-forward "Alt+Right" \
+        -kb-remove-char-back "Alt+BackSpace" \
+        -kb-custom-1 "Left" \
+        -kb-custom-2 "Right" \
+        -kb-custom-3 "t" \
+        -kb-custom-4 "r" \
+        -kb-custom-5 "BackSpace" \
+        -kb-custom-6 "T" \
+        -kb-custom-7 "R" \
+        -kb-custom-8 "Alt+1" \
+        -kb-custom-9 "Alt+2" \
+        -kb-custom-10 "Alt+3" \
+        -kb-custom-11 "Alt+4" \
+        "${theme_args[@]}"
+}
+
+while true; do
+    run_popup
+    status=$?
+    if [ -z "$theme_request" ] || [ ! -s "$theme_request" ]; then
+        exit "$status"
+    fi
+    # Rofi only applies window colors when it creates a new popup.
+    : > "$theme_request" || exit 1
+    export SCREEN_TIME_ROFI_REOPEN=1
+done

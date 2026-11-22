@@ -98,7 +98,10 @@ pub(crate) fn grid_columns(theme: &Theme) -> usize {
 }
 
 pub fn render_main(view: &DayView, mode: OutputMode) -> String {
-    let theme = &Theme::load();
+    render_main_with_theme(view, mode, &Theme::load())
+}
+
+pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &Theme) -> String {
     let layout = Layout::from_theme(theme);
     let width = layout.screen_width();
     let mut out = String::new();
@@ -265,7 +268,11 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
         &format!(
             " {}",
             role_span(
-                "←/→ day   T today   R refresh   ↵ detail   esc close",
+                if mode == OutputMode::Rofi {
+                    "←/→ day   T today   R refresh   ↵ detail   esc close   Alt+1–4 theme"
+                } else {
+                    "←/→ day   T today   R refresh   ↵ detail   esc close"
+                },
                 &theme.muted,
                 mode,
             )
@@ -555,7 +562,14 @@ fn percentage(seconds: i64, total: i64) -> i64 {
 }
 
 pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
-    let theme = &Theme::load();
+    render_detail_with_theme(view, mode, &Theme::load())
+}
+
+pub(crate) fn render_detail_with_theme(
+    view: &DetailView,
+    mode: OutputMode,
+    theme: &Theme,
+) -> String {
     let layout = Layout::from_theme(theme);
     let width = layout.screen_width().max(96);
     let mut out = String::new();
@@ -672,7 +686,11 @@ pub fn render_detail(view: &DetailView, mode: OutputMode) -> String {
     );
     emit(
         &mut out,
-        " ←/→ day   esc back",
+        if mode == OutputMode::Rofi {
+            " ←/→ day   esc back   Alt+1–4 theme"
+        } else {
+            " ←/→ day   esc back"
+        },
         RowMeta::App("__back__".to_owned()),
         mode,
     );
