@@ -1,0 +1,539 @@
+{
+  "measured_at_utc": "2026-11-22T11:30:18.471401+00:00",
+  "source_revision": "b37230206e19ddf65827c4d97249f9cd8fd30649",
+  "screen_time_package": "/nix/store/lhml3rn1s8b4ck3sqgawzb699hmvz3px-screen-time-0.2.1",
+  "screen_time_version": "screen-time 0.2.1",
+  "activitywatch_package": "/nix/store/gazm3qzsh31px9hy57a1544pkam5s1pc-activitywatch-0.13.2",
+  "arbtt_binary": "/nix/store/lpc2zd033npfh6yrkb3539an1lfzyw05-arbtt-0.12.0.3/bin/arbtt-capture",
+  "arbtt_version": "arbtt-capture 0.12.0.3",
+  "rofi_version": "Version: 2.0.0",
+  "kernel": "7.3.5",
+  "arch": "x86_64",
+  "cpu": "AMD Ryzen 7 8845H w/ Radeon 780M Graphics",
+  "state_filesystem": "ext2/ext3",
+  "runtime_filesystem": "tmpfs",
+  "fixture_apps": [
+    "bench-editor",
+    "bench-browser",
+    "bench-terminal",
+    "bench-mail",
+    "bench-chat",
+    "bench-music",
+    "bench-files",
+    "bench-reader",
+    "bench-video",
+    "bench-calendar"
+  ],
+  "screen_time_binary_sha256": "fdd26781bdbf5c12870636dbd945fa13ffb689e1f1b3548f5aec03718b58d531",
+  "competitor_binaries": {
+    "logger": {
+      "path": "/tmp/screen-time-competitors/ScreenTimeLogger/screentime_logger.py",
+      "sha256": "e4545fbdfc725d9910ab71f2353e5418cf1d55f97ccc4f93c3b3d92cfe24ec97"
+    },
+    "niri": {
+      "path": "/tmp/screen-time-competitors/niri-bin",
+      "sha256": "3ca222fe048c3a6cacc1d58843b794b8fdbab10c7430853af2afc5b4a45a282a"
+    },
+    "mono": {
+      "path": "/tmp/screen-time-competitors/mono/target/release/mono-tracker",
+      "sha256": "f1728feab00f991b01cc9896c184ed0a260e4a919ce06eaa4031acd885035db6"
+    },
+    "toki": {
+      "path": "/tmp/screen-time-competitors/Toki/target/release/toki-daemon",
+      "sha256": "88886a89398a78cafd566e2583c96e110d74f1a79e15291643dc4605de863d52"
+    },
+    "atracker": {
+      "path": "/tmp/screen-time-competitors/atracker/atracker-rs/target/release/atracker-rs",
+      "sha256": "1b543aeffb3bceafff30e1f57371fad0f24172607aef76d94104405a43c9b93d"
+    }
+  },
+  "focus_switches_per_trial": 10,
+  "interval_seconds": 6.0,
+  "tracker_samples": [
+    {
+      "seconds": 66.00042047500028,
+      "steady_focus_seconds": 10.000042040002882,
+      "screen_time": {
+        "pss_kib": 2650,
+        "processes": 1,
+        "threads": 3,
+        "cpu_pct_one_core": 0.0,
+        "write_bytes": 81920,
+        "steady_focus": {
+          "pss_kib": 2630,
+          "processes": 1,
+          "threads": 3,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "sessions_after_shutdown": 10,
+        "focus_events_at_shutdown": 11,
+        "unique_fixture_apps": 10
+      },
+      "activitywatch": {
+        "pss_kib": 83823,
+        "processes": 4,
+        "threads": 25,
+        "cpu_pct_one_core": 0.681813838095852,
+        "write_bytes": 2424832,
+        "steady_focus": {
+          "pss_kib": 84536,
+          "processes": 4,
+          "threads": 25,
+          "cpu_pct_one_core": 0.2999987388052156,
+          "write_bytes": 77824
+        },
+        "window_events_at_end": 11,
+        "unique_fixture_apps": 10
+      },
+      "arbtt": {
+        "pss_kib": 9401,
+        "processes": 1,
+        "threads": 2,
+        "cpu_pct_one_core": 0.1818170234922272,
+        "write_bytes": 73728,
+        "steady_focus": {
+          "pss_kib": 7822,
+          "processes": 1,
+          "threads": 2,
+          "cpu_pct_one_core": 0.19999915920347708,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10,
+        "capture_file_bytes_at_end": 7931
+      },
+      "screen_time_logger": {
+        "pss_kib": 8683,
+        "processes": 1,
+        "threads": 1,
+        "cpu_pct_one_core": 0.25757411661398855,
+        "write_bytes": 32768,
+        "steady_focus": {
+          "pss_kib": 8862,
+          "processes": 1,
+          "threads": 1,
+          "cpu_pct_one_core": 0.19999915920347708,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "niri_screen_time": {
+        "pss_kib": 13524,
+        "processes": 1,
+        "threads": 9,
+        "cpu_pct_one_core": 7.499952219054372,
+        "write_bytes": 327680,
+        "steady_focus": {
+          "pss_kib": 11244,
+          "processes": 1,
+          "threads": 7,
+          "cpu_pct_one_core": 6.699971833316482,
+          "write_bytes": 32768
+        },
+        "unique_fixture_apps": 10
+      },
+      "mono": {
+        "pss_kib": 7248,
+        "processes": 1,
+        "threads": 6,
+        "cpu_pct_one_core": 1.303022001694295,
+        "write_bytes": 475136,
+        "steady_focus": {
+          "pss_kib": 7248,
+          "processes": 1,
+          "threads": 6,
+          "cpu_pct_one_core": 1.1999949552208624,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "toki": {
+        "pss_kib": 3976,
+        "processes": 1,
+        "threads": 8,
+        "cpu_pct_one_core": 0.015151418624352268,
+        "write_bytes": 503808,
+        "steady_focus": {
+          "pss_kib": 3992,
+          "processes": 1,
+          "threads": 8,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "atracker": {
+        "pss_kib": 9546,
+        "processes": 1,
+        "threads": 22,
+        "cpu_pct_one_core": 0.30302837248704534,
+        "write_bytes": 577536,
+        "steady_focus": {
+          "pss_kib": 9250,
+          "processes": 1,
+          "threads": 22,
+          "cpu_pct_one_core": 0.09999957960173854,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      }
+    },
+    {
+      "seconds": 66.00230919000023,
+      "steady_focus_seconds": 10.000061323997215,
+      "screen_time": {
+        "pss_kib": 2561,
+        "processes": 1,
+        "threads": 3,
+        "cpu_pct_one_core": 0.0,
+        "write_bytes": 81920,
+        "steady_focus": {
+          "pss_kib": 2571,
+          "processes": 1,
+          "threads": 3,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "sessions_after_shutdown": 10,
+        "focus_events_at_shutdown": 11,
+        "unique_fixture_apps": 10
+      },
+      "activitywatch": {
+        "pss_kib": 83900,
+        "processes": 4,
+        "threads": 25,
+        "cpu_pct_one_core": 0.7727002377020897,
+        "write_bytes": 2400256,
+        "steady_focus": {
+          "pss_kib": 84582,
+          "processes": 4,
+          "threads": 25,
+          "cpu_pct_one_core": 0.2999981602913654,
+          "write_bytes": 73728
+        },
+        "window_events_at_end": 11,
+        "unique_fixture_apps": 10
+      },
+      "arbtt": {
+        "pss_kib": 9430,
+        "processes": 1,
+        "threads": 2,
+        "cpu_pct_one_core": 0.21211379074175013,
+        "write_bytes": 69632,
+        "steady_focus": {
+          "pss_kib": 7873,
+          "processes": 1,
+          "threads": 2,
+          "cpu_pct_one_core": 0.09999938676378846,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10,
+        "capture_file_bytes_at_end": 7929
+      },
+      "screen_time_logger": {
+        "pss_kib": 8770,
+        "processes": 1,
+        "threads": 1,
+        "cpu_pct_one_core": 0.33332167116560735,
+        "write_bytes": 32768,
+        "steady_focus": {
+          "pss_kib": 8922,
+          "processes": 1,
+          "threads": 1,
+          "cpu_pct_one_core": 0.19999877352757692,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "niri_screen_time": {
+        "pss_kib": 16932,
+        "processes": 1,
+        "threads": 8,
+        "cpu_pct_one_core": 8.711816405464736,
+        "write_bytes": 327680,
+        "steady_focus": {
+          "pss_kib": 13272,
+          "processes": 1,
+          "threads": 7,
+          "cpu_pct_one_core": 6.49996013964625,
+          "write_bytes": 28672
+        },
+        "unique_fixture_apps": 10
+      },
+      "mono": {
+        "pss_kib": 7170,
+        "processes": 1,
+        "threads": 6,
+        "cpu_pct_one_core": 1.499947520245233,
+        "write_bytes": 475136,
+        "steady_focus": {
+          "pss_kib": 7171,
+          "processes": 1,
+          "threads": 6,
+          "cpu_pct_one_core": 1.1999926411654616,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "toki": {
+        "pss_kib": 3990,
+        "processes": 1,
+        "threads": 8,
+        "cpu_pct_one_core": 0.01515098505298215,
+        "write_bytes": 483328,
+        "steady_focus": {
+          "pss_kib": 3991,
+          "processes": 1,
+          "threads": 8,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "atracker": {
+        "pss_kib": 9578,
+        "processes": 1,
+        "threads": 22,
+        "cpu_pct_one_core": 0.33332167116560735,
+        "write_bytes": 577536,
+        "steady_focus": {
+          "pss_kib": 9388,
+          "processes": 1,
+          "threads": 22,
+          "cpu_pct_one_core": 0.19999877352757692,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      }
+    },
+    {
+      "seconds": 66.00067572099942,
+      "steady_focus_seconds": 10.000037320001866,
+      "screen_time": {
+        "pss_kib": 2516,
+        "processes": 1,
+        "threads": 3,
+        "cpu_pct_one_core": 0.0,
+        "write_bytes": 81920,
+        "steady_focus": {
+          "pss_kib": 2516,
+          "processes": 1,
+          "threads": 3,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "sessions_after_shutdown": 10,
+        "focus_events_at_shutdown": 11,
+        "unique_fixture_apps": 10
+      },
+      "activitywatch": {
+        "pss_kib": 83811,
+        "processes": 4,
+        "threads": 25,
+        "cpu_pct_one_core": 0.8030220815320683,
+        "write_bytes": 2187264,
+        "steady_focus": {
+          "pss_kib": 83906,
+          "processes": 4,
+          "threads": 25,
+          "cpu_pct_one_core": 0.39999850720549646,
+          "write_bytes": 94208
+        },
+        "window_events_at_end": 11,
+        "unique_fixture_apps": 10
+      },
+      "arbtt": {
+        "pss_kib": 9523,
+        "processes": 1,
+        "threads": 2,
+        "cpu_pct_one_core": 0.21211904040469728,
+        "write_bytes": 20480,
+        "steady_focus": {
+          "pss_kib": 7945,
+          "processes": 1,
+          "threads": 2,
+          "cpu_pct_one_core": 0.29999888040412237,
+          "write_bytes": 4096
+        },
+        "unique_fixture_apps": 10,
+        "capture_file_bytes_at_end": 7929
+      },
+      "screen_time_logger": {
+        "pss_kib": 8779,
+        "processes": 1,
+        "threads": 1,
+        "cpu_pct_one_core": 0.303027200578139,
+        "write_bytes": 20480,
+        "steady_focus": {
+          "pss_kib": 8765,
+          "processes": 1,
+          "threads": 1,
+          "cpu_pct_one_core": 0.4999981340068706,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "niri_screen_time": {
+        "pss_kib": 15104,
+        "processes": 1,
+        "threads": 9,
+        "cpu_pct_one_core": 8.969605137112914,
+        "write_bytes": 262144,
+        "steady_focus": {
+          "pss_kib": 13320,
+          "processes": 1,
+          "threads": 7,
+          "cpu_pct_one_core": 10.999958948151153,
+          "write_bytes": 45056
+        },
+        "unique_fixture_apps": 10
+      },
+      "mono": {
+        "pss_kib": 7002,
+        "processes": 1,
+        "threads": 6,
+        "cpu_pct_one_core": 1.484833282832881,
+        "write_bytes": 413696,
+        "steady_focus": {
+          "pss_kib": 7002,
+          "processes": 1,
+          "threads": 6,
+          "cpu_pct_one_core": 2.0999921628288565,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "toki": {
+        "pss_kib": 3970,
+        "processes": 1,
+        "threads": 8,
+        "cpu_pct_one_core": 0.015151360028906949,
+        "write_bytes": 442368,
+        "steady_focus": {
+          "pss_kib": 3966,
+          "processes": 1,
+          "threads": 8,
+          "cpu_pct_one_core": 0.0,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      },
+      "atracker": {
+        "pss_kib": 9193,
+        "processes": 1,
+        "threads": 21,
+        "cpu_pct_one_core": 0.3636326406937668,
+        "write_bytes": 524288,
+        "steady_focus": {
+          "pss_kib": 8953,
+          "processes": 1,
+          "threads": 21,
+          "cpu_pct_one_core": 0.4999981340068706,
+          "write_bytes": 0
+        },
+        "unique_fixture_apps": 10
+      }
+    }
+  ],
+  "ui": {
+    "renderer_ms": [
+      6.637371,
+      9.565431,
+      5.93102,
+      7.188119,
+      4.478923,
+      5.015895,
+      6.016882,
+      8.749843,
+      7.629532,
+      4.219464,
+      3.552417
+    ],
+    "launches": [
+      {
+        "visible_ms": 80.730676,
+        "pss_kib": 6108,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 2
+      },
+      {
+        "visible_ms": 85.775415,
+        "pss_kib": 6170,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 3
+      },
+      {
+        "visible_ms": 85.829307,
+        "pss_kib": 6076,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      },
+      {
+        "visible_ms": 84.922478,
+        "pss_kib": 6153,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      },
+      {
+        "visible_ms": 87.961735,
+        "pss_kib": 6164,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 3
+      },
+      {
+        "visible_ms": 87.298185,
+        "pss_kib": 6006,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 3
+      },
+      {
+        "visible_ms": 152.255217,
+        "pss_kib": 6052,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      },
+      {
+        "visible_ms": 210.585847,
+        "pss_kib": 6146,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      },
+      {
+        "visible_ms": 160.184232,
+        "pss_kib": 6120,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      },
+      {
+        "visible_ms": 172.606657,
+        "pss_kib": 6163,
+        "processes": 2,
+        "threads": 5,
+        "write_bytes": 0,
+        "cpu_ticks": 4
+      }
+    ]
+  },
+  "ui_median_ms": {
+    "render": 6.016882,
+    "visible": 87.62996000000001
+  }
+}

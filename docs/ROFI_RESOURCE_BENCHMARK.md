@@ -25,6 +25,12 @@ Location: `/tmp/opencode/screen-time-bench/` (not part of the NixOS repo).
 - 3 runs per workload; median reported.
 - Warm cache; startup measured from process launch to first visible window.
 
+For local previews, start Xvfb on an explicit test display, for example
+`Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp`. Wait for that server to be
+ready before running clients with `DISPLAY=:99`. Abort if startup fails.
+Xvfb's `-displayfd` mode can select the live Hyprland Xwayland display and
+unlink its socket when both servers share `/tmp/.X11-unix`.
+
 ### Workloads
 
 1. **Rofi dashboard**
