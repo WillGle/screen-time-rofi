@@ -10,15 +10,22 @@ apps. [See the charts and full comparison →](docs/EVALUATION.md)
 
 ## Quick start
 
-On Linux with Hyprland, Rofi 2.x, and a systemd user session, download and run
-the release installer as your desktop user:
+On Linux with Hyprland, Rofi 2.x, minisign, and a systemd user session,
+download and verify the release installer as your desktop user:
 
 ```bash
-curl -fsSLO https://github.com/WillGle/screen-time-rofi/releases/latest/download/install.sh
+base=https://github.com/WillGle/screen-time-rofi/releases/latest/download
+curl -fsSLO https://raw.githubusercontent.com/WillGle/screen-time-rofi/main/minisign.pub
+curl -fsSLO "$base/install.sh" "$base/install.sh.minisig"
+minisign -Vm install.sh -p minisign.pub   # key id 4E5BF83E07DA94ED
 less install.sh
 bash install.sh
 ~/.local/bin/rofi-screen-time
 ```
+
+Updates are opt-in: `bash install.sh --check` only reports, and
+`--auto-update=check` or `--auto-update=apply` install signed user timers. See
+[data safety and updates](docs/AUTO_UPDATE.md).
 
 On NixOS or standalone Home Manager, import
 `inputs.screen-time-rofi.homeManagerModules.default` and set

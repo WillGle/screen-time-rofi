@@ -317,9 +317,8 @@ Raw data: [ten-tracker run](benchmarks/linux-ten-trackers.json),
 [original three-tracker run](benchmarks/linux-trackers.json).
 
 Earlier three-tracker results used different display geometry, wrapper logic,
-and timing conditions. The JSON is linked above; UI-shell and M9 measurements
-are retained in the local internal report. They are not directly comparable to
-the current charts.
+and timing conditions. The JSON is linked above. UI-shell and M9 measurements
+are not directly comparable to the current charts.
 
 ## Limitations
 

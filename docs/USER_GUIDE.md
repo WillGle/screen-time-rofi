@@ -21,10 +21,10 @@ installer as your desktop user.
 
 | Distro family | Dependency command | Notes |
 |---|---|---|
-| Debian, Ubuntu, Mint, Pop!_OS | `sudo apt install curl rofi` | Ubuntu provides Rofi in Universe. Debian stable and Ubuntu LTS may ship Rofi 1.x. Use a Rofi 2.x package from a trusted source for native Wayland. |
-| Fedora | `sudo dnf install curl rofi` | On Fedora Atomic desktops, provide Rofi and Hyprland in the host session. Run the per-user installer from the host. |
-| Arch, EndeavourOS, Manjaro | `sudo pacman -Syu --needed curl rofi` | Arch provides Rofi through Extra. |
-| openSUSE | `sudo zypper install curl rofi` | Check availability for your release with `zypper search -s rofi`. |
+| Debian, Ubuntu, Mint, Pop!_OS | `sudo apt install curl minisign rofi` | Ubuntu provides Rofi in Universe. Debian stable and Ubuntu LTS may ship Rofi 1.x. Use a Rofi 2.x package from a trusted source for native Wayland. |
+| Fedora | `sudo dnf install curl minisign rofi` | On Fedora Atomic desktops, provide Rofi and Hyprland in the host session. Run the per-user installer from the host. |
+| Arch, EndeavourOS, Manjaro | `sudo pacman -Syu --needed curl minisign rofi` | Arch provides Rofi through Extra. |
+| openSUSE | `sudo zypper install curl minisign rofi` | Check availability for your release with `zypper search -s rofi`. |
 
 Install Hyprland using your distro's packages or its
 [upstream installation guide](https://wiki.hypr.land/Getting-Started/Installation/),
@@ -34,7 +34,14 @@ not add tracking to GNOME, KDE Plasma, Sway, or other compositors.
 From a terminal in Hyprland:
 
 ```bash
-curl -fsSLO https://github.com/WillGle/screen-time-rofi/releases/latest/download/install.sh
+base=https://github.com/WillGle/screen-time-rofi/releases/latest/download
+# Fetch the key from the repository, not from the release object being verified.
+curl -fsSLO https://raw.githubusercontent.com/WillGle/screen-time-rofi/main/minisign.pub
+curl -fsSLO "$base/install.sh"
+curl -fsSLO "$base/install.sh.minisig"
+# The pinned key id must be 4E5BF83E07DA94ED.
+grep -q 4E5BF83E07DA94ED minisign.pub
+minisign -Vm install.sh -p minisign.pub
 less install.sh
 bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -42,10 +49,15 @@ screen-time doctor
 rofi-screen-time
 ```
 
+The installer itself also verifies every release asset with the same pinned
+minisign key before it stops the service. A missing, invalid, or unknown
+signature is a hard failure. The key id is printed by `minisign -Vm` and the
+fingerprint is recorded in the backup manifest.
+
 Add `~/.local/bin` to your login session's PATH if Hyprland cannot resolve the
 launcher. You can also use an absolute path in your Hyprland shortcut. The
-release installer verifies the archive checksum and installs the binary,
-launcher, fallback theme, and user service at:
+release installer verifies signatures and archive checksums, then installs the
+binary, launcher, fallback theme, and user service at:
 
 ```text
 ~/.local/bin/screen-time
@@ -71,13 +83,14 @@ From the checkout:
 
 ```bash
 archive="$(bash scripts/package-release.sh | tail -n 1)"
-bash install.sh --tarball "$archive"
+bash install.sh --tarball "$archive" --allow-unsigned
 ```
 
-The packaging script writes the matching `SHA256SUMS` beside the tarball. For
-a separately obtained archive, put that checksum file beside it or pass its
-trusted digest with `--sha256`. The tarball installs the launcher, theme, and
-service together with the Rust binary.
+`--allow-unsigned` is for a local build, never for an automatic update. To
+exercise the signed path, sign `dist/SHA256SUMS` with
+`scripts/sign-release.sh` first. For a separately obtained archive, put its
+`SHA256SUMS` beside it or pass its trusted digest with `--sha256`. The tarball
+installs the launcher, theme, and service together with the Rust binary.
 
 ### Nix
 
@@ -251,6 +264,40 @@ mode = "auto" # auto | full | compact
 Select a preset in `theme.mode` to use a palette independent of the wallpaper.
 Changes take effect when you reopen Rofi.
 
+### History retention
+
+History is kept forever by default. Nothing is pruned unless you opt in with a
+`[retention]` section. Each category is independent; a missing value or `0`
+keeps that category forever.
+
+```toml
+[retention]
+events_days = 30       # raw focus/idle/boot events
+sessions_days = 90     # per-app session rows
+aggregates_days = 365  # daily app and 30-minute slot aggregates
+power_days = 365       # closed power sessions
+```
+
+The daemon applies pruning once at startup and again at date rollover. Invalid
+TOML is treated as keep-all: a warning is logged and nothing is deleted. Set
+`[storage] warn_db_mib` and `hard_db_mib` to change the default 250 MiB / 1 GiB
+size warnings reported by `screen-time doctor`. Size warnings never delete
+data.
+
+Migration backups under
+`${XDG_STATE_HOME:-~/.local/state}/screen-time/backups/migrations/` are never
+pruned automatically. After verifying a migration, remove old copies manually:
+
+```bash
+ls -lh ~/.local/state/screen-time/backups/migrations/
+# Review the list, then remove only the files you no longer need.
+rm ~/.local/state/screen-time/backups/migrations/pre-v1-YYYYMMDD-HHMMSS.db
+```
+
+Installs before 0.4.0 pruned events/sessions/aggregates on a fixed 30/90/365
+day schedule. Data already deleted cannot be recovered; keep-all only affects
+future pruning.
+
 | Mode | Palette |
 |---|---|
 | `nord` | Nord, with cool slate surfaces |
@@ -321,34 +368,83 @@ and history stay in the user's state directory.
 
 ### GitHub release or tarball
 
-Re-run `install.sh` to update. The installer stops the service, backs up the
-current binary/wrapper/theme/unit and a SQLite copy in
-`~/.local/state/screen-time/backups/updates/`, installs atomically, restarts the
-service, and runs `screen-time doctor`. It keeps one rollback backup and prunes
-older ones after a successful update.
+Updates are opt-in. Nothing downloads or runs in the background unless you
+install a timer. The updater:
+
+1. takes a single update lock (a concurrent run exits before stopping the
+   service);
+2. verifies the release signature, checksums, and that it is a stable tag;
+3. checks free space for the database, WAL, two backups, and staging;
+4. records whether the service was active, stops it, and creates a consistent
+   `VACUUM INTO` snapshot with a manifest and SHA-256 hash;
+5. replaces the binary, launcher, theme, unit, version, and hash files
+   atomically;
+6. runs a data-fingerprint comparison and `screen-time doctor --json
+   --no-runtime`;
+7. marks the backup verified and prunes only old **verified** backups, keeping
+   at least two. A failed attempt and its backup are kept for diagnosis;
+8. restores the previous files, database snapshot, and service state on any
+   failure after the snapshot.
 
 ```bash
-# check versions only; makes no changes
+# check only; no installation changes
 bash install.sh --check
+bash install.sh --check --json
+# exit: 0 up to date, 10 update available, 20 network, 21 invalid release,
+#       22 signature error
 
-# rollback to the previous installed version
+# install the latest stable release if newer
+bash install.sh --update
+bash install.sh --update --dry-run
+
+# opt in to a daily check notification (no code is downloaded or installed)
+bash install.sh --auto-update=check
+
+# opt in to signed automatic updates (stable tags only, no major bumps)
+bash install.sh --auto-update=apply
+
+# remove update timers and update state
+bash install.sh --no-auto-update
+
+# restore the latest verified successful backup; keep it for audit
 bash install.sh --rollback
 
-# remove artifacts; keep history
+# remove artifacts; keep database, config, and all backups
 bash install.sh --uninstall
 
-# remove artifacts and history
+# remove artifacts, database, config, and backups after confirmation
 bash install.sh --uninstall --purge
 
-# remove stale staging dirs / old backups only
+# remove stale staging dirs and old verified backups only
 bash install.sh --clean
 ```
 
-`uninstall.sh` is the standalone equivalent of `install.sh --uninstall` and
-supports `--prefix`, `--purge`, and `--dry-run`.
+`install.sh --update` is a no-op when up to date. It never downgrades unless
+`--allow-downgrade` is passed, and it refuses a schema downgrade unless
+`--allow-schema-downgrade` is also passed. Automatic mode never accepts
+`--force`, `--allow-unsigned`, `--uninstall`, or a major-version bump.
 
-There is no auto-update daemon. Download and inspect the new `install.sh` before
-running it. A user-modified theme is not overwritten without `--force`.
+Update state lives under `~/.local/state/screen-time/updates/`:
+`last-check.json`, `last-update.json`, `update-in-progress.json`,
+`failure.json`, and `update.lock`. The lock and state files are diagnostics;
+deleting them does not remove database history or verified backups. A failed
+automatic attempt backs off exponentially (up to 24 hours) and does not retry
+the same tag immediately.
+
+`uninstall.sh` is the standalone equivalent of `install.sh --uninstall` and
+supports `--prefix`, `--purge`, `--yes`, and `--dry-run`. `--purge` requires an
+interactive `purge` confirmation or `--yes` in a script.
+
+The update timer is a systemd **user** timer. It runs only while the user
+manager is available; with lingering enabled it can run after logout. If no
+graphical session is available the update still verifies data but skips
+runtime-only checks. Auto-apply also skips while the session is locked or the
+machine is on battery. A user-modified theme is not overwritten without
+`--force`. A unit whose `ExecStart` was changed is backed up and never silently
+replaced.
+
+See [AUTO_UPDATE.md](AUTO_UPDATE.md) for the channel model, signing, key
+rotation, and recovery runbook.
 
 ## Troubleshooting
 
@@ -356,7 +452,19 @@ Run the built-in health check first:
 
 ```bash
 screen-time doctor
+screen-time doctor --json | jq .
+screen-time doctor --json --no-runtime   # skip Hyprland/Rofi/logind
 journalctl --user -u screen-time -n 100 --no-pager
+```
+
+`doctor --json` reports the schema version, per-table counts, `quick_check`,
+retention policy, database/WAL/backup sizes, service state, snapshot freshness,
+and a data fingerprint (`counts`, total session seconds, app keys, and app-key
+hash). The updater compares that fingerprint before and after installing. A
+consistent snapshot can be produced without `sqlite3`:
+
+```bash
+screen-time snapshot --to /tmp/screen-time-snapshot --json
 ```
 
 Common cases:
