@@ -1,6 +1,6 @@
 [package]
 name = "screen-time"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Local, per-user screen-time tracker with a static Rofi day timeline"
