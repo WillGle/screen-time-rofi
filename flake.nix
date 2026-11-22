@@ -28,7 +28,7 @@
           lib = pkgs.lib;
           screen-time = pkgs.rustPlatform.buildRustPackage {
             pname = "screen-time";
-            version = "0.3.0";
+            version = "0.4.0";
 
             src = lib.cleanSourceWith {
               src = lib.cleanSource ./.;
@@ -41,7 +41,8 @@
                   "target"
                   "dist"
                   ".git"
-                ]);
+                ])
+                && !(lib.hasInfix "/docs/internal" path);
             };
 
             cargoLock.lockFile = ./Cargo.lock;
@@ -81,9 +82,13 @@
             packages = with pkgs; [
               cargo
               clippy
+              jq
+              minisign
+              python3
               rustc
               rustfmt
               shellcheck
+              util-linux
             ];
           };
         }
