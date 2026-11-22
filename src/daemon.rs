@@ -23,6 +23,8 @@ use crate::ui;
 const BATCH_INTERVAL_SECONDS: i64 = 60;
 const BATCH_EVENT_LIMIT: usize = 100;
 const HEARTBEAT_SECONDS: i64 = 60;
+const MAX_PENDING_EVENTS: usize = 10_000;
+const MAX_PENDING_SESSIONS: usize = 1_000;
 
 /// Held for the whole daemon run; flock releases automatically on exit or
 /// crash, so no stale-lock cleanup is needed.
@@ -240,7 +242,10 @@ struct Tracker {
     last_focus: Option<String>,
     pending_events: Vec<EventRecord>,
     pending_sessions: Vec<Session>,
+    last_commit_error: RetryLog,
     snapshot_error: RetryLog,
+    events_drop_warned: bool,
+    sessions_drop_warned: bool,
     last_commit_ts: i64,
     last_snapshot_ts: i64,
     boot_id: String,
@@ -265,7 +270,10 @@ impl Tracker {
             last_focus: None,
             pending_events: Vec::new(),
             pending_sessions: Vec::new(),
+            last_commit_error: RetryLog::default(),
             snapshot_error: RetryLog::default(),
+            events_drop_warned: false,
+            sessions_drop_warned: false,
             last_commit_ts,
             last_snapshot_ts: 0,
             boot_id,
@@ -353,6 +361,14 @@ impl Tracker {
         }
         self.add_to_day(&session, false);
         self.pending_sessions.push(session);
+        if cap_pending(&mut self.pending_sessions, MAX_PENDING_SESSIONS) > 0
+            && !self.sessions_drop_warned
+        {
+            self.sessions_drop_warned = true;
+            eprintln!(
+                "screen-time: pending session queue is full; dropping oldest sessions (max {MAX_PENDING_SESSIONS})"
+            );
+        }
     }
 
     fn add_to_day(&mut self, session: &Session, extension_only: bool) {
@@ -402,6 +418,13 @@ impl Tracker {
             state: Some(state.to_owned()),
             boot_id: self.boot_id.clone(),
         });
+        if cap_pending(&mut self.pending_events, MAX_PENDING_EVENTS) > 0 && !self.events_drop_warned
+        {
+            self.events_drop_warned = true;
+            eprintln!(
+                "screen-time: pending event queue is full; dropping oldest events (max {MAX_PENDING_EVENTS})"
+            );
+        }
     }
 
     fn after_event(
@@ -462,11 +485,19 @@ impl Tracker {
                 self.pending_events.clear();
                 self.pending_sessions.clear();
                 self.last_commit_ts = now_ts;
+                if self.last_commit_error.recovered() {
+                    eprintln!("screen-time: batch commit recovered");
+                }
+                self.events_drop_warned = false;
+                self.sessions_drop_warned = false;
                 self.write_snapshot(paths, now_ts);
                 Ok(())
             }
             Err(error) => {
-                eprintln!("screen-time: batch commit failed (will retry): {error:#}");
+                let message = format!("{error:#}");
+                if self.last_commit_error.should_log(&message) {
+                    eprintln!("screen-time: batch commit failed (will retry): {message}");
+                }
                 Ok(())
             }
         }
@@ -593,6 +624,16 @@ impl Tracker {
             }
         }
     }
+}
+
+/// Drop the oldest entries above `cap`, returning how many were discarded.
+fn cap_pending<T>(queue: &mut Vec<T>, cap: usize) -> usize {
+    if queue.len() <= cap {
+        return 0;
+    }
+    let excess = queue.len() - cap;
+    queue.drain(..excess);
+    excess
 }
 
 #[cfg(test)]
@@ -932,6 +973,94 @@ mod tests {
         };
         paths.ensure().unwrap();
         paths
+    }
+
+    #[test]
+    fn pending_event_queue_drops_oldest_and_stays_bounded() {
+        let mut tracker = tracker();
+        let start = base();
+        for offset in 0..MAX_PENDING_EVENTS + 5 {
+            tracker.record_event(
+                start + offset as i64,
+                "focus",
+                Some("Code".to_owned()),
+                "begin",
+            );
+        }
+        assert_eq!(tracker.pending_events.len(), MAX_PENDING_EVENTS);
+        assert_eq!(tracker.pending_events.first().unwrap().ts, start + 5);
+        assert_eq!(
+            tracker.pending_events.last().unwrap().ts,
+            start + MAX_PENDING_EVENTS as i64 + 4
+        );
+        assert!(tracker.events_drop_warned);
+    }
+
+    #[test]
+    fn pending_session_queue_drops_oldest_without_touching_day_totals() {
+        let mut tracker = tracker();
+        let start = base();
+        let total = MAX_PENDING_SESSIONS + 5;
+        for offset in 0..total {
+            let app = format!("App{offset}");
+            let session_start = start + offset as i64 * 2;
+            tracker.record_closed_session(
+                Session::new(
+                    &app,
+                    "2026-11-21".to_owned(),
+                    session_start,
+                    session_start + 1,
+                )
+                .unwrap(),
+            );
+        }
+        assert_eq!(tracker.pending_sessions.len(), MAX_PENDING_SESSIONS);
+        assert_eq!(tracker.pending_sessions.first().unwrap().app, "App5");
+        assert_eq!(tracker.pending_sessions.last().unwrap().app, "App1004");
+        assert_eq!(tracker.day.apps.len(), total);
+        assert_eq!(tracker.day.active_seconds(), total as i64);
+        assert!(tracker.sessions_drop_warned);
+    }
+
+    #[test]
+    fn failed_commit_then_success_leaves_no_queued_duplicates() {
+        let dir = tempdir().unwrap();
+        let paths = test_paths(&dir);
+        let mut write_db = Database::open_write(&paths.db_path, None).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (start, _) = timeutil::day_bounds(date);
+        let mut tracker = Tracker::new(
+            date,
+            crate::db::DayData::new(date),
+            start,
+            "boot".to_owned(),
+            start,
+            RetentionPolicy::disabled(),
+        );
+        tracker.record_closed_session(
+            Session::new("Code", "2026-11-21".to_owned(), start + 100, start + 200).unwrap(),
+        );
+        tracker.record_event(start + 200, "focus", Some("Code".to_owned()), "begin");
+
+        let mut read_only = Database::open_read(&paths.db_path).unwrap();
+        tracker.flush(&paths, &mut read_only, start + 250).unwrap();
+        assert_eq!(tracker.pending_events.len(), 1);
+        assert_eq!(tracker.pending_sessions.len(), 1);
+        assert_eq!(read_only.counts().unwrap(), (0, 0));
+
+        tracker.flush(&paths, &mut write_db, start + 300).unwrap();
+        assert!(tracker.pending_events.is_empty());
+        assert!(tracker.pending_sessions.is_empty());
+        assert_eq!(write_db.counts().unwrap(), (1, 1));
+    }
+
+    #[test]
+    fn cap_pending_drops_only_the_oldest_entries() {
+        let mut queue = vec![1, 2, 3, 4, 5];
+        assert_eq!(cap_pending(&mut queue, 3), 2);
+        assert_eq!(queue, vec![3, 4, 5]);
+        assert_eq!(cap_pending(&mut queue, 3), 0);
+        assert_eq!(queue, vec![3, 4, 5]);
     }
 
     #[test]
