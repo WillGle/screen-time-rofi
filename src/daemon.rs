@@ -331,6 +331,9 @@ impl Tracker {
             return;
         };
         if ts <= open.start_ts {
+            // A backward clock jump would otherwise drop the interval without
+            // any trace in the raw event log.
+            self.record_event(ts, "clock", Some(open.app), "backward");
             return;
         }
         for session in sessions::split_session(&open.app, open.start_ts, ts) {
@@ -663,6 +666,20 @@ mod tests {
         )
     }
 
+    fn test_paths(dir: &tempfile::TempDir) -> Paths {
+        let paths = Paths {
+            state_dir: dir.path().to_path_buf(),
+            db_path: dir.path().join("screen-time.db"),
+            runtime_dir: dir.path().to_path_buf(),
+            live_path: dir.path().join("live.json"),
+            ui_state_path: dir.path().join("ui.json"),
+            backups_dir: dir.path().join("backups"),
+            migration_backups_dir: dir.path().join("migration-backups"),
+        };
+        paths.ensure().unwrap();
+        paths
+    }
+
     #[test]
     fn focus_switch_closes_and_opens() {
         let mut tracker = tracker();
@@ -961,19 +978,6 @@ mod tests {
             .unwrap();
         assert_eq!(remaining, 0);
     }
-    fn test_paths(dir: &tempfile::TempDir) -> Paths {
-        let paths = Paths {
-            state_dir: dir.path().to_path_buf(),
-            db_path: dir.path().join("screen-time.db"),
-            runtime_dir: dir.path().to_path_buf(),
-            live_path: dir.path().join("live.json"),
-            ui_state_path: dir.path().join("ui.json"),
-            backups_dir: dir.path().join("backups"),
-            migration_backups_dir: dir.path().join("migration-backups"),
-        };
-        paths.ensure().unwrap();
-        paths
-    }
 
     #[test]
     fn pending_event_queue_drops_oldest_and_stays_bounded() {
@@ -1129,5 +1133,138 @@ mod tests {
 
         drop(first);
         acquire_daemon_lock(&paths).expect("lock is released when the guard drops");
+    }
+
+    #[test]
+    fn backward_clock_jump_discards_interval_and_records_one_clock_event() {
+        let mut tracker = tracker();
+        let start = base();
+        assert!(tracker.on_focus(Some("Code".to_owned()), start + 1_000));
+        assert!(tracker.on_focus(Some("Firefox".to_owned()), start + 900));
+
+        assert!(tracker.pending_sessions.is_empty());
+        assert_eq!(tracker.day.active_seconds(), 0);
+        assert!(tracker.day.slots.iter().all(|seconds| *seconds >= 0));
+        assert_eq!(tracker.open.as_ref().unwrap().app, "Firefox");
+        assert_eq!(tracker.open.as_ref().unwrap().start_ts, start + 900);
+
+        let clock_events: Vec<_> = tracker
+            .pending_events
+            .iter()
+            .filter(|event| event.kind == "clock")
+            .collect();
+        assert_eq!(clock_events.len(), 1);
+        assert_eq!(clock_events[0].ts, start + 900);
+        assert_eq!(clock_events[0].state.as_deref(), Some("backward"));
+        assert_eq!(clock_events[0].app.as_deref(), Some("Code"));
+
+        // Every discarded interval gets exactly one diagnostic event.
+        assert!(tracker.on_focus(Some("Terminal".to_owned()), start + 850));
+        let clock_events: Vec<_> = tracker
+            .pending_events
+            .iter()
+            .filter(|event| event.kind == "clock")
+            .collect();
+        assert_eq!(clock_events.len(), 2);
+        assert_eq!(clock_events[1].app.as_deref(), Some("Firefox"));
+        assert_eq!(tracker.day.active_seconds(), 0);
+        assert!(tracker.day.slots.iter().all(|seconds| *seconds >= 0));
+    }
+
+    #[test]
+    fn tick_after_midnight_closes_old_day_at_midnight_and_resumes() {
+        let dir = tempdir().unwrap();
+        let paths = test_paths(&dir);
+        let mut db = Database::open_write(&paths.db_path, None).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (day_start, day_end) = timeutil::day_bounds(date);
+        let mut tracker = Tracker::new(
+            date,
+            crate::db::DayData::new(date),
+            day_start,
+            "boot".to_owned(),
+            day_start,
+            RetentionPolicy::disabled(),
+        );
+        let focus_ts = day_end - 10 * 60;
+        tracker.on_focus(Some("Code".to_owned()), focus_ts);
+        tracker.tick(&paths, &mut db, day_end + 10 * 60).unwrap();
+
+        assert_eq!(tracker.date, date.succ_opt().unwrap());
+        let sessions = db.load_app_sessions(date, "Code").unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].start_ts, focus_ts);
+        assert_eq!(sessions[0].end_ts, day_end);
+        assert_eq!(sessions[0].seconds, 10 * 60);
+        assert_eq!(tracker.open.as_ref().unwrap().app, "Code");
+        assert_eq!(tracker.open.as_ref().unwrap().start_ts, day_end);
+
+        tracker.close_open(day_end + 10 * 60);
+        assert_eq!(tracker.day.apps["Code"].seconds, 10 * 60);
+        assert_eq!(tracker.day.active_seconds(), 10 * 60);
+        assert_eq!(
+            sessions[0].seconds + tracker.day.active_seconds(),
+            20 * 60,
+            "the interval is split exactly at local midnight"
+        );
+    }
+
+    #[test]
+    fn rollover_while_idle_does_not_resume_an_open_interval() {
+        let dir = tempdir().unwrap();
+        let paths = test_paths(&dir);
+        let mut db = Database::open_write(&paths.db_path, None).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let (day_start, day_end) = timeutil::day_bounds(date);
+        let mut tracker = Tracker::new(
+            date,
+            crate::db::DayData::new(date),
+            day_start,
+            "boot".to_owned(),
+            day_start,
+            RetentionPolicy::disabled(),
+        );
+        tracker.on_focus(Some("Code".to_owned()), day_end - 10 * 60);
+        // Simulate an idle signal that raced the rollover: the open focus
+        // interval still exists, but tracking is already marked idle.
+        tracker.idle = true;
+        tracker.tick(&paths, &mut db, day_end + 10 * 60).unwrap();
+
+        assert_eq!(tracker.date, date.succ_opt().unwrap());
+        assert!(tracker.open.is_none());
+        let sessions = db.load_app_sessions(date, "Code").unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].end_ts, day_end);
+    }
+
+    #[test]
+    fn multi_day_gap_does_not_resume_and_closes_monday_at_midnight() {
+        let dir = tempdir().unwrap();
+        let paths = test_paths(&dir);
+        let mut db = Database::open_write(&paths.db_path, None).unwrap();
+        let monday = chrono::NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let (monday_start, monday_end) = timeutil::day_bounds(monday);
+        let mut tracker = Tracker::new(
+            monday,
+            crate::db::DayData::new(monday),
+            monday_start,
+            "boot".to_owned(),
+            monday_start,
+            RetentionPolicy::disabled(),
+        );
+        tracker.on_focus(Some("Code".to_owned()), monday_start + 10 * 3_600);
+        let wednesday = monday.checked_add_days(chrono::Days::new(2)).unwrap();
+        let wednesday_start = timeutil::day_bounds(wednesday).0;
+        tracker
+            .tick(&paths, &mut db, wednesday_start + 10 * 3_600)
+            .unwrap();
+
+        assert_eq!(tracker.date, wednesday);
+        assert!(tracker.open.is_none());
+        let sessions = db.load_app_sessions(monday, "Code").unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].end_ts, monday_end);
+        let tuesday = monday.succ_opt().unwrap();
+        assert!(db.load_app_sessions(tuesday, "Code").unwrap().is_empty());
     }
 }

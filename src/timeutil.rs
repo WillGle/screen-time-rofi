@@ -158,20 +158,19 @@ pub fn slot_start_ts(date: NaiveDate, slot: usize) -> i64 {
 }
 
 pub fn next_slot_boundary(ts: i64) -> i64 {
-    let dt = local(ts);
-    let minute = dt.minute();
-    let next = if minute < 30 {
-        dt.with_minute(30).unwrap_or(dt)
-    } else {
-        (dt + Duration::hours(1))
-            .with_minute(0)
-            .unwrap_or(dt + Duration::hours(1))
-    };
-    next.with_second(0)
-        .unwrap_or(next)
-        .with_nanosecond(0)
-        .unwrap_or(next)
-        .timestamp()
+    // Walk real time in whole minutes until the local clock reaches :00 or
+    // :30. Local wall-clock arithmetic alone is wrong around DST: a repeated
+    // boundary can be ambiguous and a skipped one does not exist, while the
+    // real distance to the next boundary stays at most 30 minutes.
+    let mut candidate = ts - ts.rem_euclid(60) + 60;
+    for _ in 0..(2 * 60) {
+        let dt = local(candidate);
+        if dt.second() == 0 && dt.minute() % 30 == 0 {
+            return candidate;
+        }
+        candidate += 60;
+    }
+    ts + SLOT_SECONDS
 }
 
 /// Add the overlap of `[start, end)` with `date` to 48 half-hour slots.
