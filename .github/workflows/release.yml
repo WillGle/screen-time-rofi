@@ -17,8 +17,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install shellcheck, minisign, and jq
+        run: sudo apt-get update && sudo apt-get install -y shellcheck minisign jq
       - name: Format
         run: cargo fmt --check
       - name: Clippy
@@ -28,7 +28,9 @@ jobs:
       - name: Evaluation charts
         run: python3 scripts/render-evaluation-charts.py --check
       - name: Shell scripts
-        run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/benchmark-linux-sandbox.sh
+        run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/sign-release.sh scripts/test-installer.sh scripts/restore-drill.sh scripts/benchmark-linux-sandbox.sh
+      - name: Installer integration and fault injection
+        run: scripts/test-installer.sh
 
   build:
     strategy:
@@ -59,7 +61,7 @@ jobs:
           install -m 755 share/rofi-screen-time "$stage/bin/rofi-screen-time"
           install -m 644 share/rofi/screen-time.rasi "$stage/share/rofi/screen-time.rasi"
           install -m 644 systemd/screen-time.service "$stage/systemd/screen-time.service"
-          install -m 644 LICENSE README.md "$stage/"
+          install -m 644 LICENSE README.md CHANGELOG.md "$stage/"
           asset="screen-time-${ARCH}-linux.tar.gz"
           tar -czf "dist/$asset" -C "$stage" .
           (cd dist && sha256sum "$asset" > SHA256SUMS)
@@ -83,15 +85,33 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
       - name: Build release assets
         run: |
           set -euo pipefail
           mkdir -p assets
           mv dist/screen-time-*.tar.gz assets/
-          cp install.sh uninstall.sh assets/
+          cp install.sh uninstall.sh minisign.pub assets/
           cd assets
-          sha256sum screen-time-*.tar.gz install.sh uninstall.sh > SHA256SUMS
+          sha256sum screen-time-*.tar.gz install.sh uninstall.sh minisign.pub > SHA256SUMS
           cat SHA256SUMS
+      - name: Sign release metadata
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$MINISIGN_SECRET_KEY" ] || { echo "MINISIGN_SECRET_KEY is not configured" >&2; exit 1; }
+          key="$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key"
+          chmod 600 "$key"
+          MINISIGN_SECRET_KEY="$key" scripts/sign-release.sh assets
+      - name: Verify release assets
+        run: |
+          set -euo pipefail
+          minisign -Vm assets/SHA256SUMS -p minisign.pub
+          minisign -Vm assets/install.sh -p minisign.pub
+          (cd assets && sha256sum -c SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*

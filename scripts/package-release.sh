@@ -21,16 +21,15 @@ install -m 755 target/release/screen-time "$STAGE/bin/screen-time"
 install -m 755 share/rofi-screen-time "$STAGE/bin/rofi-screen-time"
 install -m 644 share/rofi/screen-time.rasi "$STAGE/share/rofi/screen-time.rasi"
 install -m 644 systemd/screen-time.service "$STAGE/systemd/screen-time.service"
-install -m 644 LICENSE README.md "$STAGE/"
+install -m 644 LICENSE README.md CHANGELOG.md "$STAGE/"
 
 ASSET="screen-time-${ARCH}-linux.tar.gz"
 tar -czf "$ROOT/dist/$ASSET" -C "$STAGE" .
+install -m 755 install.sh "$ROOT/dist/install.sh"
+install -m 755 uninstall.sh "$ROOT/dist/uninstall.sh"
+install -m 644 minisign.pub "$ROOT/dist/minisign.pub"
 (
     cd "$ROOT/dist"
-    if [ -f SHA256SUMS ]; then
-        grep -v "  ${ASSET}$" SHA256SUMS > SHA256SUMS.tmp || true
-        mv SHA256SUMS.tmp SHA256SUMS
-    fi
-    sha256sum "$ASSET" >> SHA256SUMS
+    sha256sum "$ASSET" install.sh uninstall.sh minisign.pub > SHA256SUMS
 )
 printf '%s\n' "$ROOT/dist/$ASSET"

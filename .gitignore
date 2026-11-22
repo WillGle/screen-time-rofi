@@ -12,3 +12,7 @@ __pycache__/
 
 /result
 /result-*
+
+# Release signing key must stay offline; never commit it.
+/minisign.key
+*.minisign.key
