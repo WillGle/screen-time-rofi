@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+pub mod backoff;
 pub mod capture;
 pub mod cli;
 pub mod config;

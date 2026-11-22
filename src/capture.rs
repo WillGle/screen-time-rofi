@@ -12,7 +12,13 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::backoff::{FailureLog, next_delay};
 use crate::sessions;
+
+const WAIT_FOR_HYPRLAND_DELAY: Duration = Duration::from_secs(2);
+const RECONNECT_DELAY: Duration = Duration::from_secs(2);
+const BASE_RETRY_DELAY: Duration = Duration::from_secs(2);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -125,16 +131,34 @@ pub fn query_active_window(command_socket: &Path) -> Result<Option<String>> {
 }
 
 pub fn run_listener(tx: Sender<Event>, stop: Arc<AtomicBool>) {
+    let mut failures = 0u32;
+    let mut log = FailureLog::default();
     while !stop.load(Ordering::Relaxed) {
         let Some(paths) = discover() else {
-            thread::sleep(Duration::from_secs(2));
+            // Waiting for Hyprland is not an error and must not affect the
+            // failure streak.
+            thread::sleep(WAIT_FOR_HYPRLAND_DELAY);
             continue;
         };
         match connect_and_read(&paths, &tx, &stop) {
-            Ok(()) => {}
+            Ok(()) => {
+                failures = 0;
+                if log.recovered() {
+                    eprintln!("screen-time: Hyprland capture: recovered");
+                }
+                if !stop.load(Ordering::Relaxed) {
+                    // A socket that accepts and closes immediately must not
+                    // busy-loop the listener.
+                    thread::sleep(RECONNECT_DELAY);
+                }
+            }
             Err(error) => {
-                eprintln!("screen-time: Hyprland capture: {error:#}");
-                thread::sleep(Duration::from_secs(2));
+                failures = failures.saturating_add(1);
+                let message = format!("{error:#}");
+                if log.should_log(&message) {
+                    eprintln!("screen-time: Hyprland capture: {message}");
+                }
+                thread::sleep(next_delay(failures, BASE_RETRY_DELAY, MAX_RETRY_DELAY));
             }
         }
     }

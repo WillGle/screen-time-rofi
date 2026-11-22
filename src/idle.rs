@@ -7,7 +7,11 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use zbus::blocking::{Connection, Proxy};
 
+use crate::backoff::{FailureLog, next_delay};
 use crate::capture::Event;
+
+const BASE_RETRY_DELAY: Duration = Duration::from_secs(5);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(5 * 60);
 
 const LOGIN1: &str = "org.freedesktop.login1";
 const SESSION_PATH: &str = "/org/freedesktop/login1/session/auto";
@@ -54,12 +58,23 @@ pub fn run_listener(tx: Sender<Event>, stop: Arc<AtomicBool>) {
     if std::env::var("SCREEN_TIME_DISABLE_IDLE").as_deref() == Ok("1") {
         return;
     }
+    let mut failures = 0u32;
+    let mut log = FailureLog::default();
     while !stop.load(Ordering::Relaxed) {
         match listen(&tx, &stop) {
-            Ok(()) => {}
+            Ok(()) => {
+                failures = 0;
+                if log.recovered() {
+                    eprintln!("screen-time: idle capture: recovered");
+                }
+            }
             Err(error) => {
-                eprintln!("screen-time: idle capture: {error:#}");
-                thread::sleep(Duration::from_secs(5));
+                failures = failures.saturating_add(1);
+                let message = format!("{error:#}");
+                if log.should_log(&message) {
+                    eprintln!("screen-time: idle capture: {message}");
+                }
+                thread::sleep(next_delay(failures, BASE_RETRY_DELAY, MAX_RETRY_DELAY));
             }
         }
     }
