@@ -157,7 +157,7 @@ BACKUPS="$STATE/backups/updates"
 CONFIG="$XDG_CONFIG_HOME/screen-time/config.toml"
 
 # Build once. The installer always installs release-shaped tarballs.
-(cd "$ROOT" && cargo build --locked >/dev/null 2>&1)
+(cd "$ROOT" && cargo build --locked)
 
 make_tarball() {
     local out="$1"
