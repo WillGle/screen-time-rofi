@@ -64,7 +64,7 @@ fn detail_screen_1920x1080() {
     assert_or_update_golden("detail_1920x1080.txt", &actual);
     assert!(actual.contains("2h 14m"));
     assert!(actual.contains("8 switches/h"));
-    assert!(actual.contains("+ 4 longer sessions"));
+    assert!(actual.contains("+ 4 other sessions"));
     assert!(actual.contains("▌ BURSTS"));
     assert!(actual.contains("▌ 7 DAY"));
 }

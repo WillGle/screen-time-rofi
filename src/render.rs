@@ -571,130 +571,228 @@ pub(crate) fn render_detail_with_theme(
     theme: &Theme,
 ) -> String {
     let layout = Layout::from_theme(theme);
-    let width = layout.screen_width().max(96);
-    let mut out = String::new();
-    if mode == OutputMode::Rofi {
-        out.push_str("\0message\x1f\n\0theme\x1flistview { lines: 24; }\n");
-        out.push_str("\0use-hot-keys\x1ftrue\n");
-        out.push_str("\0markup-rows\x1ftrue\n");
-        out.push_str("\0no-custom\x1ftrue\n");
-        out.push_str("\0keep-selection\x1ftrue\n");
-    }
+    let width = layout.screen_width();
+    let category = AppCategory::from_app(&view.app);
+    let color = category.color(theme);
+    let app = display_name(&view.app, if layout.cell_width == 1 { 16 } else { 24 });
+    let name = markup_text(app.trim_end(), mode);
+    let title = styled_span(&format!("● {name}"), color, Some("700"), mode);
+    let total = timeutil::format_duration(view.total_seconds);
+    let share = format!("{}% of active time", view.share_percent);
+    let date = timeutil::format_date_label(view.date, view.today);
+    let subtitle = format!("{} · {share} · {date}", category.label());
 
-    let right = format!(
-        "{} · {}% of today",
-        timeutil::format_duration(view.total_seconds),
-        view.share_percent
-    );
-    let app_name = if mode == OutputMode::Rofi {
-        escape_markup(&view.app)
-    } else {
-        view.app.clone()
-    };
-    emit(
-        &mut out,
-        &pad_section(
-            &format!("\u{258c} {app_name}"),
-            &right,
-            width,
-            &theme.accent,
-            mode,
-        ),
-        RowMeta::NonSelectable,
-        mode,
-    );
-
+    let mut body = String::new();
     let stats = format!(
-        " {} sessions · median {} · {} switches/h",
+        " {} sessions    median {}    {} switches/h",
         view.session_count,
         timeutil::format_minutes(view.median_seconds),
         view.switches_per_hour
     );
-    emit(&mut out, &stats, RowMeta::NonSelectable, mode);
+    emit(&mut body, &stats, RowMeta::NonSelectable, mode);
 
     let through = view
         .sessions_through
         .map(|value| value.format("%H:%M").to_string())
         .unwrap_or_else(|| "--:--".to_owned());
-    let mut freshness = format!(" sessions through {through} · may lag one batch");
-    if view.stale {
-        freshness.push_str(" · stale live");
-    }
-    emit(&mut out, &freshness, RowMeta::NonSelectable, mode);
-    emit_spacer(&mut out, mode);
+    let stale = if view.stale { " · stale live" } else { "" };
+    emit(
+        &mut body,
+        &format!(
+            " {}",
+            role_span(
+                &format!("sessions through {through} · may lag one batch{stale}"),
+                &theme.muted,
+                mode
+            )
+        ),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    emit_spacer(&mut body, mode);
 
+    let activity_start = body.lines().count();
+    emit(
+        &mut body,
+        &section_header("APP ACTIVITY", "", width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    let mut slots = [0; SLOT_COUNT];
+    for session in &view.sessions {
+        timeutil::add_interval_to_slots(&mut slots, view.date, session.start_ts, session.end_ts);
+    }
+    emit(
+        &mut body,
+        &format!(
+            "{}{}",
+            " ".repeat(PREFIX_WIDTH),
+            ruler(layout.timeline_width())
+        ),
+        RowMeta::NonSelectable,
+        mode,
+    );
+    let activity = if slots.iter().any(|&seconds| seconds > 0) {
+        let label = role_span(" Sessions", &theme.muted, mode);
+        format!(
+            "{label}{}{}",
+            " ".repeat(PREFIX_WIDTH - " Sessions".len()),
+            strip(&slots.map(|seconds| seconds > 0), "█", &layout, mode, color)
+        )
+    } else {
+        " No sessions recorded".to_owned()
+    };
+    emit(&mut body, &activity, RowMeta::NonSelectable, mode);
+    let activity_end = body.lines().count() - 1;
+    emit_spacer(&mut body, mode);
+
+    let burst_start = body.lines().count();
+    emit(
+        &mut body,
+        &section_header("BURSTS", "", width, theme, mode),
+        RowMeta::NonSelectable,
+        mode,
+    );
     if let Some(error) = &view.db_error {
         emit(
-            &mut out,
+            &mut body,
             " Database unavailable",
             RowMeta::NonSelectable,
             mode,
         );
-        emit(&mut out, &format!(" {error}"), RowMeta::NonSelectable, mode);
-    } else {
         emit(
-            &mut out,
-            &section_line("BURSTS", &theme.accent, mode),
+            &mut body,
+            &format!(" {}", markup_text(error, mode)),
             RowMeta::NonSelectable,
             mode,
         );
-        if view.sessions.is_empty() {
+    } else {
+        let bursts = view.bursts.iter().take(5);
+        if let Some(longest) = bursts.clone().map(|burst| burst.seconds).max() {
             emit(
-                &mut out,
-                " Sessions will appear after the first batch.",
+                &mut body,
+                &format!(
+                    " {}",
+                    role_span(
+                        "Time range      Sessions  Active     Relative duration",
+                        &theme.muted,
+                        mode
+                    )
+                ),
                 RowMeta::NonSelectable,
                 mode,
             );
-        } else {
-            for burst in view.bursts.iter().take(5) {
+            for burst in bursts {
+                let length = (burst.seconds * 28 / longest.max(1)).clamp(1, 28) as usize;
+                let bar = if mode == OutputMode::Rofi {
+                    format!("<span background=\"{color}\">{}</span>", " ".repeat(length))
+                } else {
+                    "█".repeat(length)
+                };
                 let line = format!(
-                    " {}–{}   {:>2}×   {:>4}",
+                    " {}–{}      {:>3}×    {:>7}     {bar}",
                     timeutil::format_hhmm(burst.start_ts),
                     timeutil::format_hhmm(burst.end_ts),
                     burst.count,
-                    timeutil::format_minutes(burst.seconds)
+                    timeutil::format_duration_compact(burst.seconds),
                 );
-                emit(&mut out, &line, RowMeta::NonSelectable, mode);
+                emit(&mut body, &line, RowMeta::NonSelectable, mode);
             }
-            if view.remaining_sessions > 0 {
-                emit(
-                    &mut out,
-                    &format!(
-                        " + {} longer sessions   {}",
-                        view.remaining_sessions,
-                        timeutil::format_duration(view.remaining_seconds)
-                    ),
-                    RowMeta::NonSelectable,
-                    mode,
-                );
-            }
+        } else {
+            let message = if view.sessions.is_empty() {
+                " Sessions will appear after the first batch."
+            } else {
+                " No bursts of repeated sessions."
+            };
+            emit(&mut body, message, RowMeta::NonSelectable, mode);
+        }
+        if view.remaining_sessions > 0 && !view.bursts.is_empty() {
+            emit(
+                &mut body,
+                &format!(
+                    " + {} other sessions   {}",
+                    view.remaining_sessions,
+                    timeutil::format_duration(view.remaining_seconds)
+                ),
+                RowMeta::NonSelectable,
+                mode,
+            );
         }
     }
+    let burst_end = body.lines().count() - 1;
+    emit_spacer(&mut body, mode);
 
-    emit_spacer(&mut out, mode);
+    let trend_start = body.lines().count();
+    let average = view.trend_avg.map_or_else(String::new, |average| {
+        format!(
+            "avg {} · previous days with usage",
+            timeutil::format_duration(average)
+        )
+    });
     emit(
-        &mut out,
-        &section_line("7 DAY", &theme.power, mode),
+        &mut body,
+        &section_header("7 DAY", &average, width, theme, mode),
         RowMeta::NonSelectable,
         mode,
     );
+    if let Some(bars) = sparkline(&view.trend) {
+        let dates = timeutil::week_dates(view.date, view.trend.len());
+        let cell_width = (width - 2) / dates.len();
+        let mut labels = String::from(" ");
+        let mut graph = String::from(" ");
+        let mut durations = String::from(" ");
+        for ((day, seconds), bar) in dates.iter().zip(&view.trend).zip(bars.chars()) {
+            let ink = if *day == view.date {
+                color
+            } else {
+                &theme.muted
+            };
+            let day = day.format("%a %d").to_string();
+            let total = seconds.map_or_else(|| "—".to_owned(), timeutil::format_duration_compact);
+            labels.push_str(&role_span(&format!("{day:^cell_width$}"), ink, mode));
+            let bar_color = if bar == '·' { &theme.muted } else { color };
+            graph.push_str(&role_span(
+                &format!("{:^cell_width$}", bar.to_string().repeat(3)),
+                bar_color,
+                mode,
+            ));
+            durations.push_str(&role_span(&format!("{total:^cell_width$}"), ink, mode));
+        }
+        for line in [labels, graph, durations] {
+            emit(&mut body, &line, RowMeta::NonSelectable, mode);
+        }
+    } else {
+        emit(
+            &mut body,
+            " No recorded history",
+            RowMeta::NonSelectable,
+            mode,
+        );
+    }
+    let trend_end = body.lines().count() - 1;
+    emit_spacer(&mut body, mode);
     emit(
-        &mut out,
-        &detail_trend_line(&view.trend, view.trend_avg, mode, &theme.power),
-        RowMeta::NonSelectable,
-        mode,
-    );
-    emit(
-        &mut out,
+        &mut body,
         if mode == OutputMode::Rofi {
-            " ←/→ day   esc back   Alt+1–4 theme"
+            " ←/→ day   Backspace back   Esc close   Alt+1–4 theme"
         } else {
-            " ←/→ day   esc back"
+            " ←/→ day   Backspace back   Esc close"
         },
         RowMeta::App("__back__".to_owned()),
         mode,
     );
-    out
+
+    if mode == OutputMode::Rofi {
+        let font_size = theme.font_size;
+        let lines = body.lines().count();
+        format!(
+            "\0message\x1f <span size=\"{font_size}pt\">{title}</span>  <span weight=\"700\">{total}</span>  <span size=\"{font_size}pt\" foreground=\"{}\">{subtitle}</span>\n\0theme\x1flistview {{ lines: {lines}; }}\n\0use-hot-keys\x1ftrue\n\0markup-rows\x1ftrue\n\0no-custom\x1ftrue\n\0active\x1f{activity_start}-{activity_end},{burst_start}-{burst_end},{trend_start}-{trend_end}\n\0keep-selection\x1ftrue\n\0new-selection\x1f{}\n{body}",
+            theme.muted,
+            lines - 1
+        )
+    } else {
+        format!(" {title}   {total}   {subtitle}\n{body}")
+    }
 }
 
 fn escape_markup(value: &str) -> String {
@@ -745,40 +843,6 @@ fn section_header(
     let meta = role_span(meta, &theme.muted, mode);
     let line = format!(" {marker} {title}{}{meta}", " ".repeat(padding));
     panel_line(&line, width, theme, mode)
-}
-
-fn marker(color: &str, mode: OutputMode) -> String {
-    if mode == OutputMode::Rofi {
-        format!("<span foreground=\"{color}\">\u{258c}</span>")
-    } else {
-        "\u{258c}".to_owned()
-    }
-}
-
-fn section_line(label: &str, color: &str, mode: OutputMode) -> String {
-    format!("{} {label}", marker(color, mode))
-}
-
-fn pad_section(
-    left_plain: &str,
-    right: &str,
-    width: usize,
-    color: &str,
-    mode: OutputMode,
-) -> String {
-    let line = pad_line(left_plain, right, width);
-    if mode == OutputMode::Rofi {
-        line.replacen('\u{258c}', &marker(color, mode), 1)
-    } else {
-        line
-    }
-}
-
-fn pad_line(left: &str, right: &str, width: usize) -> String {
-    let left_len = visible_len(left);
-    let right_len = visible_len(right);
-    let padding = width.saturating_sub(left_len + right_len);
-    format!("{left}{}{right}", " ".repeat(padding))
 }
 
 /// Display width for our small Pango markup subset. Tags add no columns and
@@ -873,22 +937,6 @@ fn sparkline(trend: &[Option<i64>]) -> Option<String> {
 
 fn role_span(value: &str, color: &str, mode: OutputMode) -> String {
     styled_span(value, color, None, mode)
-}
-
-fn detail_trend_line(
-    trend: &[Option<i64>],
-    average: Option<i64>,
-    mode: OutputMode,
-    color: &str,
-) -> String {
-    let Some(sparkline) = sparkline(trend) else {
-        return " no history".to_owned();
-    };
-    let sparkline = role_span(&sparkline, color, mode);
-    match average {
-        Some(average) => format!(" {sparkline}   avg {}", timeutil::format_duration(average)),
-        None => format!(" {sparkline}"),
-    }
 }
 
 enum RowMeta {

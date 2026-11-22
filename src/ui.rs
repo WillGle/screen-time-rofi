@@ -41,7 +41,8 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             state.app = Some(app.clone());
         }
         write_state(paths, &state)?;
-    } else {
+    } else if retv != 0 {
+        let was_detail = state.app.is_some();
         match retv {
             1 => {
                 if let Ok(info) = std::env::var("ROFI_INFO") {
@@ -93,6 +94,14 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             _ => {}
         }
         write_state(paths, &state)?;
+        // The popup height is determined on open. Reload it when changing
+        // between the app list and the taller detail view.
+        if was_detail != state.app.is_some() {
+            if let Some(request) = std::env::var_os("SCREEN_TIME_ROFI_THEME_REQUEST") {
+                fs::write(request, b"reopen")?;
+                return Ok(String::new());
+            }
+        }
     }
 
     let date = state

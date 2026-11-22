@@ -118,7 +118,7 @@ while true; do
     if [ -z "$theme_request" ] || [ ! -s "$theme_request" ]; then
         exit "$status"
     fi
-    # Rofi only applies window colors when it creates a new popup.
+    # Rofi applies window size and colors when it creates a popup.
     : > "$theme_request" || exit 1
     export SCREEN_TIME_ROFI_REOPEN=1
 done
