@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="WillGle/screen-time-rofi"
 PROG="screen-time"
+NIXOS_FLAKE=""
 VERSION=""
 PREFIX="${HOME}/.local"
 NO_SERVICE=0
@@ -26,6 +27,7 @@ Usage: install.sh [options]
 Install or update screen-time for the current user. No root required.
 
 Options:
+  --nixos FLAKE#HOST    activate this checkout via the host screen-time-rofi input
   --version VERSION     install a specific release tag (for example v0.1.0)
   --check               print installed and latest version; make no changes
   --prefix PATH         install prefix (default: ~/.local)
@@ -89,6 +91,11 @@ trap cleanup EXIT INT TERM
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --nixos)
+            [ "$#" -ge 2 ] && [[ "$2" == ?*#?* ]] || die "--nixos requires FLAKE#HOST"
+            NIXOS_FLAKE="$2"
+            shift 2
+            ;;
         --version)
             [ "$#" -ge 2 ] || die "--version requires a value"
             VERSION="$2"
@@ -159,6 +166,24 @@ if [ "$PURGE" -eq 1 ] && [ "$UNINSTALL" -ne 1 ]; then
     die "--purge requires --uninstall"
 fi
 
+if [ -n "$NIXOS_FLAKE" ]; then
+    if (( CHECK_ONLY || CLEAN || UNINSTALL || PURGE || ROLLBACK || FORCE || NO_SERVICE || NO_THEME || REQUIRE_HYPRLAND )) ||
+        [[ -n "$VERSION$TARBALL$SHA256" || "$PREFIX" != "$HOME/.local" || "$KEEP_BACKUPS" != 1 ]]; then
+        die "--nixos accepts only --dry-run alongside it"
+    fi
+    checkout="$(dirname "$(realpath -- "${BASH_SOURCE[0]}")")"
+    [ -f "$checkout/flake.nix" ] || die "--nixos requires install.sh from the screen-time-rofi checkout"
+    have nixos-rebuild || die "nixos-rebuild is required for --nixos"
+    rebuild=(sudo nixos-rebuild switch --flake "$NIXOS_FLAKE" --override-input screen-time-rofi "$checkout" --no-write-lock-file)
+    if (( DRY_RUN )); then
+        printf 'dry-run:'
+        printf ' %q' "${rebuild[@]}"
+        printf '\n'
+        exit 0
+    fi
+    exec "${rebuild[@]}"
+fi
+
 if [ "$CHECK_ONLY" -eq 1 ]; then
     if [ -x "$BIN" ]; then
         info "installed: $("$BIN" --version 2>/dev/null || printf 'unknown')"
@@ -190,12 +215,13 @@ refuse_nix_managed_path() {
     target="$(readlink -f -- "$path" 2>/dev/null || true)"
     case "$target" in
         /nix/store/*)
-            die "$path is managed by Nix/Home Manager. Remove the old screen-time module and use homeManagerModules.default, or remove the Nix-managed link intentionally; refusing to overwrite it."
+            die "$path is managed by Nix/Home Manager. Update the flake input in your Home Manager configuration. For NixOS with the module enabled, install this checkout with: bash install.sh --nixos /etc/nixos#$(hostname)"
             ;;
     esac
 }
 
 # Never replace a Home Manager/Nix-managed launcher, unit, or theme.
+refuse_nix_managed_path "$BIN"
 refuse_nix_managed_path "$WRAPPER"
 refuse_nix_managed_path "$UNIT"
 refuse_nix_managed_path "$THEME"

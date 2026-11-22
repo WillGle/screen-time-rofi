@@ -10,23 +10,48 @@ timeline. It answers four questions in one screen:
 
 **Status:** v1 implementation with section-role colors and Matugen/font sync,
 Linux + Hyprland + Rofi + systemd user session. App-level only; no window
-titles, categories, cloud, socket, or animation.
+titles or cloud sync. The dashboard groups apps into categories.
 
 ## Install
 
-### From a GitHub release
+Screen Time tracks the active app in a **Hyprland** session and opens its
+dashboard in **Rofi**. Automatic tracking uses a **systemd user session** with
+logind. Use Rofi 2.x for native Wayland and the current dashboard theme. Package
+availability varies by distro release. Check `hyprctl version`, `rofi -version`,
+and `systemctl --user status` from a terminal inside Hyprland.
 
-Once a release is published:
+### Debian, Ubuntu, Fedora, Arch, and openSUSE
+
+Install the dependencies through your distro, then run the Screen Time
+installer as your desktop user.
+
+| Distro family | Dependency command | Notes |
+|---|---|---|
+| Debian, Ubuntu, Mint, Pop!_OS | `sudo apt install curl rofi` | Ubuntu provides Rofi in Universe. Debian stable and Ubuntu LTS may ship Rofi 1.x. Use a Rofi 2.x package from a trusted source for native Wayland. |
+| Fedora | `sudo dnf install curl rofi` | On Fedora Atomic desktops, provide Rofi and Hyprland in the host session. Run the per-user installer from the host. |
+| Arch, EndeavourOS, Manjaro | `sudo pacman -Syu --needed curl rofi` | Arch provides Rofi through Extra. |
+| openSUSE | `sudo zypper install curl rofi` | Check availability for your release with `zypper search -s rofi`. |
+
+Install Hyprland using your distro's packages or its
+[upstream installation guide](https://wiki.hypr.land/Getting-Started/Installation/),
+then log in to it. Installing Screen Time on a supported Linux base does
+not add tracking to GNOME, KDE Plasma, Sway, or other compositors.
+
+From a terminal in Hyprland:
 
 ```bash
 curl -fsSLO https://github.com/WillGle/screen-time-rofi/releases/latest/download/install.sh
 less install.sh
 bash install.sh
+export PATH="$HOME/.local/bin:$PATH"
+screen-time doctor
+rofi-screen-time
 ```
 
-The installer refuses to run as root, verifies the release checksum, stages
-everything in one temporary directory, and writes no files outside the user's
-home. It installs:
+Add `~/.local/bin` to your login session's PATH if Hyprland cannot resolve the
+launcher. You can also use an absolute path in your Hyprland shortcut. The
+release installer verifies the archive checksum and installs the binary,
+launcher, fallback theme, and user service at:
 
 ```text
 ~/.local/bin/screen-time
@@ -35,60 +60,122 @@ home. It installs:
 ~/.config/systemd/user/screen-time.service
 ```
 
-State and history are created by the daemon:
+Release archives target Linux x86_64 and, when the ARM build is published,
+AArch64. These are glibc builds. If an older distro reports `GLIBC_* not found`,
+or an archive is missing for your CPU, build locally on that machine or use Nix
+where the flake supports the CPU. Distro package commands above describe
+dependency setup. This repo's release CI builds on Ubuntu and does not run
+desktop acceptance tests on each listed distro.
 
-```text
-~/.local/state/screen-time/screen-time.db
-$XDG_RUNTIME_DIR/screen-time/live.json
+### From source or a local tarball
+
+Use a current stable Rust toolchain, a C compiler and linker, and the runtime
+dependencies above. For example, install the C toolchain via `build-essential`
+on Debian/Ubuntu, `gcc` on Fedora, `base-devel` on Arch, or `gcc` on openSUSE.
+
+From the checkout:
+
+```bash
+archive="$(bash scripts/package-release.sh | tail -n 1)"
+bash install.sh --tarball "$archive"
 ```
 
-Enable the popup in Hyprland:
+The packaging script writes the matching `SHA256SUMS` beside the tarball. For
+a separately obtained archive, put that checksum file beside it or pass its
+trusted digest with `--sha256`. The tarball installs the launcher, theme, and
+service together with the Rust binary.
+
+### Nix
+
+To preview a checkout without changing the installed package or service:
+
+```bash
+nix build .# --no-write-lock-file
+./result/bin/screen-time --version
+./result/bin/rofi-screen-time
+```
+
+The preview reads data from the existing tracker, when available. For an
+installation, add the app to the flake that already manages your Home Manager
+configuration:
+
+```nix
+inputs.screen-time-rofi = {
+  url = "github:WillGle/screen-time-rofi";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+#### NixOS with Home Manager
+
+In the NixOS modules list, where `inputs` is in scope and the Home Manager
+NixOS module is already imported, add:
+
+```nix
+{
+  home-manager.sharedModules = [ inputs.screen-time-rofi.homeManagerModules.default ];
+  home-manager.users.will.services.screen-time.enable = true;
+}
+```
+
+Replace `will` with your Home Manager user. Install Rofi in your system or
+home packages if it is missing. Rebuild from your host flake directory:
+
+```bash
+sudo nixos-rebuild switch --flake ".#$(hostname)"
+```
+
+Replace the hostname with your flake's configuration name if they differ.
+To try the local app checkout through an already enabled module:
+
+```bash
+bash install.sh --nixos "/etc/nixos#$(hostname)" --dry-run
+bash install.sh --nixos "/etc/nixos#$(hostname)"
+```
+
+This activates the entire selected NixOS configuration, including changes
+already present in it, and overrides the app input for that rebuild only. A
+later ordinary rebuild uses the locked revision again.
+
+#### Standalone Home Manager
+
+In your existing `homeManagerConfiguration`, add these entries to `modules`:
+
+```nix
+inputs.screen-time-rofi.homeManagerModules.default
+{ services.screen-time.enable = true; }
+```
+
+Then run `home-manager switch --flake .#will` from your Home Manager flake,
+using your configuration name. Standalone Home Manager on a non-NixOS distro
+uses that distro's Hyprland session and systemd user manager. Install Rofi via
+Home Manager or through the host distro.
+
+Use the Home Manager module for the daemon and launcher together. A
+`nix profile install` installs the package but does not register its user
+service. Keep the release installer and Home Manager on separate installations
+to avoid competing service or launcher paths.
+
+### First launch
+
+Check the user service and open the dashboard from the desktop session:
+
+```bash
+systemctl --user status screen-time.service
+screen-time doctor
+rofi-screen-time
+```
+
+Add a key binding in the Hyprland configuration you manage:
 
 ```text
 bind = SUPER, S, exec, rofi-screen-time
 ```
 
-### From a local build or tarball
-
-```bash
-cargo build --release
-cargo install --path . --locked           # or: bash install.sh --tarball ...
-./target/release/screen-time --version
-```
-
-The release tarball layout is `bin/screen-time`, `bin/rofi-screen-time`,
-`share/rofi/screen-time.rasi`, `systemd/screen-time.service`, `LICENSE`, and
-`README.md`. For an offline install:
-
-```bash
-bash install.sh --tarball dist/screen-time-x86_64-linux.tar.gz --sha256 <hex>
-```
-
-### Nix
-
-```bash
-nix build .#
-./result/bin/screen-time --version
-
-# or try without installing
-nix run . -- --version
-```
-
-`flake.nix` builds the same binary with `rustPlatform.buildRustPackage` and
-installs the wrapper, theme, and unit under the package path.
-
-Home Manager module:
-
-```nix
-inputs.screen-time-rofi.url = "github:WillGle/screen-time-rofi";
-
-imports = [ inputs.screen-time-rofi.homeManagerModules.default ];
-services.screen-time.enable = true;
-```
-
-This installs the package, user service, and Rofi wrapper declaratively.
-`nix profile install` alone is still not a one-time install because it does not
-wire the service. Do not manage one installation with both Nix and `install.sh`.
+The first launch can show an empty day until the daemon records activity.
+History lives at `${XDG_STATE_HOME:-~/.local/state}/screen-time/screen-time.db`.
+The current-day snapshot is normally at
+`$XDG_RUNTIME_DIR/screen-time/live.json`.
 
 ## Use
 
@@ -109,16 +196,19 @@ Keys:
 | `Backspace` | Back from detail |
 | `T` | Today |
 | `R` | Re-read the live snapshot and SQLite |
+| `Alt+1` / `Alt+2` / `Alt+3` | Switch to Nord / Solarized Light / Gruvbox Dark |
+| `Alt+4` | Return to the theme from your config |
 
-There are no visible navigation buttons. The footer is the key map.
+The footer lists the shortcuts. Switching themes reopens the popup on the
+same day and view. The shortcut selection lasts until you close the popup.
+Set `theme.mode` in the config to make a theme your default.
 
-The main screen follows the 96-column, 30-minute-slot UI spec. Sections are
-marked `▌ SCREEN TIME`, `▌ WHEN`, and `▌ APPS`; detail uses `▌ BURSTS` and
-`▌ 7 DAY`. The `POWER` row uses `▓▓`; app activity uses `██`; the aggregated
-other row uses `▒▒`. App activity and the summary/apps markers use the accent
-role; POWER, `WHEN`, and `7 DAY` use the power role; secondary/other data uses
-muted. The detail view shows total, share of day, session count, median,
-switches/hour, bursts, `sessions through HH:MM`, and a 7-day trend.
+The dashboard shows a daily total, a `DAY ACTIVITY` overview with a `POWER`
+row, and an `APP TIMELINE` for the top 10 apps. Each slot represents 30
+minutes and the ruler is labeled every two hours. The app rows show duration,
+share of tracked app time, and a category label. Apps outside the top 10 are
+grouped in a `Mixed` row. The detail view shows session count, median duration,
+switches per hour, bursts, the last committed session time, and a 7-day trend.
 
 ### The `×N` experiment
 
@@ -132,23 +222,25 @@ Or build with `--features session-count`. The default remains duration only.
 
 ## Theme and font
 
-The app follows the existing Matugen pipeline; it does not parse
-`hyprland.conf` and does not create a second theme system. Optional config lives
-at:
-
-```text
-~/.config/screen-time/config.toml
-```
+On any distro, create or edit
+`${XDG_CONFIG_HOME:-~/.config}/screen-time/config.toml`. The configuration is
+optional. Start with only the settings you want to change, for example
+`[theme]` and `mode = "nord"`.
 
 ```toml
 [theme]
-mode = "auto" # auto | matugen | static | config
+mode = "auto" # auto | matugen | static | config | nord | solarized | gruvbox
 rofi_theme = "~/.config/rofi/theme.rasi"
 palette = "~/.config/theme/generated/palette.json"
 static_env = "~/.config/theme/static.env"
 # Optional explicit overrides (validated as #RRGGBB; never half-applied)
 # base = "#0d1117"
+# mantle = "#161b22"
+# text = "#f0f6fc"
+# muted = "#8b949e"
 # accent = "#58a6ff"
+# power = "#39c5cf"
+# other = "#a0a9b5"
 
 [font]
 family = "JetBrainsMono Nerd Font"
@@ -158,28 +250,33 @@ size = 12
 mode = "auto" # auto | full | compact
 ```
 
-Resolution order is explicit config → Matugen palette → `static.env` →
-built-in high-contrast defaults. Every color is validated as `^#[0-9A-Fa-f]{6}$`;
-an invalid palette is ignored as a whole and the next fallback is used.
-`theme.mode = "static"` skips the Matugen palette; `"config"` ignores both the
-palette and `static.env` colors and uses explicit `[theme]` values plus the
-built-ins. The Matugen mapping is:
+Select a preset in `theme.mode` to use a palette independent of the wallpaper.
+Changes take effect when you reopen Rofi.
 
-| Role | Matugen path | Static fallback |
-|---|---|---|
-| base | `.colors.surface.default.color` | `THEME_STATIC_BASE` |
-| mantle | `.colors.surface_container.default.color` | `THEME_STATIC_MANTLE` |
-| text | `.colors.on_surface.default.color` | `THEME_STATIC_TEXT` |
-| muted | `.colors.on_surface_variant.default.color` | `THEME_STATIC_SUBTEXT` / `THEME_SIGNAL_MUTED` |
-| accent | `.colors.primary.default.color` | `THEME_STATIC_ACCENT` |
-| power | `.palettes.secondary["70"].color` | `THEME_STATIC_CYAN` |
-| other | muted | `THEME_STATIC_SUBTEXT` |
+| Mode | Palette |
+|---|---|
+| `nord` | Nord, with cool slate surfaces |
+| `solarized` | Solarized Light, with darker foregrounds for readability |
+| `gruvbox` | Gruvbox Dark, with warm charcoal surfaces |
+
+The earlier names `dark`, `light`, and `high-contrast` are aliases for these
+presets in the same order.
+
+`auto` and `matugen` try the Matugen palette, then `static.env`, then the built-in fallback.
+`static` starts at `static.env` and `config` starts at the built-in fallback. Explicit
+`[theme]` color overrides take precedence in all modes.
+
+Matugen provides the window and panel surfaces, foreground text, primary accent,
+and secondary power color. App categories use a fixed color palette chosen for
+the lightness of the window. Foreground colors from either source are adjusted
+as needed to reach 4.5:1 against the window and panel before explicit overrides
+are applied.
 
 Font priority is config `[font]` → `THEME_MONO_FONT` (with
 `THEME_UI_FONT` as a secondary fallback) + `THEME_ROFI_FONT_SIZE` →
 JetBrainsMono Nerd Font 12 pt. `layout.mode = "auto"` switches to the
-48-column/compact/four-row layout when the configured font no longer fits 96
-columns; `full` and `compact` force a layout. `rofi-screen-time` queries the
+48-column timeline when the 96-column timeline plus its labels and stats
+does not fit. `full` and `compact` force a timeline width. `rofi-screen-time` queries the
 focused monitor width with `hyprctl monitors -j`; set
 `SCREEN_TIME_SCREEN_WIDTH` to override it.
 
@@ -191,6 +288,26 @@ theme for chrome if it exists, and passes the resolved font/colors to Rofi.
 `ROFI_THEME` overrides the base Rofi theme. The installed
 `share/rofi/screen-time.rasi` is only a fallback. The installer never overwrites
 `~/.config/screen-time/config.toml`.
+
+### Manage the config with Home Manager
+
+Apply the same settings declaratively in a Home Manager module:
+
+```nix
+{ pkgs, ... }:
+{
+  xdg.configFile."screen-time/config.toml".source = (pkgs.formats.toml {}).generate
+    "screen-time.toml" {
+      theme.mode = "nord";
+      font.size = 12;
+      layout.mode = "auto";
+    };
+}
+```
+
+If the destination already holds a hand-written config, move it to a backup
+first and carry its values into the module. Once Home Manager owns the file,
+edit the Nix module and switch your configuration to apply changes.
 
 ### M9 device validation
 
@@ -224,6 +341,17 @@ The full before/after values, measurements, and golden diffs are in
 [`docs/FINAL_REPORT.md`](docs/FINAL_REPORT.md#m8m9-validation).
 
 ## Update, rollback, uninstall
+
+### Nix and Home Manager
+
+From the flake directory that declares the app input, run
+`nix flake update screen-time-rofi`, then use the same rebuild or Home Manager
+switch command as at install time. To roll back only Screen Time, restore its
+previous lock entry and switch the configuration again. To remove it, set
+`services.screen-time.enable = false` in Home Manager and switch. Your state
+and history stay in the user's state directory.
+
+### GitHub release or tarball
 
 Re-run `install.sh` to update. The installer stops the service, backs up the
 current binary/wrapper/theme/unit and a SQLite copy in
@@ -293,24 +421,26 @@ Common cases:
   `systemctl --user start screen-time`.
 - **`Hyprland event socket not found`**: the service is not running inside a
   Hyprland session, or `HYPRLAND_INSTANCE_SIGNATURE` is missing. Start the
-  service after the graphical session is ready.
+  service after the graphical session is ready. From a terminal inside Hyprland,
+  run `systemctl --user import-environment HYPRLAND_INSTANCE_SIGNATURE` and
+  `systemctl --user restart screen-time.service`. If this repeats at login,
+  configure your Hyprland session to import its environment into the user
+  manager and start `graphical-session.target`.
 - **`logind IdleHint unavailable`**: the system D-Bus or login1 session is not
   reachable. Active time still tracks, but idle gaps may be overcounted.
 - **`stale` in the header**: the live snapshot is older than two minutes. Check
   the service; the popup intentionally does not extend a stale open interval.
-- **No app rows**: use the popup for a minute after login, or check
+- **No app rows**: let the daemon track some activity after login, or check
   `journalctl --user -u screen-time`. A session shorter than the one-minute
   slot threshold still appears in the app total but not as a full strip block.
 - **Theme conflict on update**: the installed theme differs from the last
   installer-managed copy. Back it up and rerun with `--force`.
-- **`rofi-screen-time` still opens the old UI**: `~/.local/bin/rofi-screen-time`
-  is probably a Home Manager/Nix symlink from the old module. The installer now
-  refuses to overwrite it. Remove the old screen-time module and use
-  `homeManagerModules.default`, or intentionally remove the old Nix-managed
-  link before running `install.sh`; never let both manage the same path.
-- **`rofi: failed to set binding`**: another Rofi instance owns the default
-  pidfile. The wrapper uses `rofi-screen-time.pid`; remove a stale
-  `$XDG_RUNTIME_DIR/rofi-screen-time.pid` only when no popup is running.
+- **Installer reports a Nix-managed unit or launcher**: follow the [Nix
+  installation instructions](#nix) to update the package and service together.
+- **Rofi reports an existing instance**: close the existing popup before
+  reopening. The wrapper uses `$XDG_RUNTIME_DIR/rofi-screen-time.pid`.
+- **Rofi reports a key binding or theme error**: check `rofi -version` and
+  use Rofi 2.x on Hyprland. Check for binding conflicts in your Rofi config.
 
 ## Development
 
