@@ -171,10 +171,12 @@ pub fn normalize_app(class: &str) -> Option<String> {
     let canonical = match name.to_ascii_lowercase().as_str() {
         "code" | "code - oss" | "code-oss" => Some("Code"),
         "vscodium" => Some("VSCodium"),
-        "firefox" | "firefox-developer-edition" | "firefox-esr" => Some("Firefox"),
-        "chromium" | "chromium-browser" => Some("Chromium"),
-        "google-chrome" | "google-chrome-stable" => Some("Chrome"),
-        "brave-browser" | "brave" => Some("Brave"),
+        "firefox" | "firefox-developer-edition" | "firefox-esr" | "org.mozilla.firefox" => {
+            Some("Firefox")
+        }
+        "chromium" | "chromium-browser" | "org.chromium.chromium" => Some("Chromium"),
+        "google-chrome" | "google-chrome-stable" | "com.google.chrome" => Some("Chrome"),
+        "brave-browser" | "brave" | "com.brave.browser" => Some("Brave"),
         "kitty" => Some("Kitty"),
         "alacritty" => Some("Alacritty"),
         "foot" => Some("Foot"),
@@ -182,16 +184,26 @@ pub fn normalize_app(class: &str) -> Option<String> {
         "org.gnome.terminal" | "gnome-terminal" | "gnome-terminal-server" => Some("Terminal"),
         "konsole" => Some("Konsole"),
         "slack" => Some("Slack"),
-        "discord" => Some("Discord"),
-        "telegram-desktop" | "telegram" => Some("Telegram"),
-        "spotify" => Some("Spotify"),
+        "discord" | "com.discordapp.discord" => Some("Discord"),
+        "signal" | "signal-desktop" | "org.signal.signal" => Some("Signal"),
+        "telegram-desktop" | "telegram" | "org.telegram.desktop" => Some("Telegram"),
+        "spotify" | "com.spotify.client" => Some("Spotify"),
         "mpv" => Some("mpv"),
         "vlc" => Some("VLC"),
-        "obsidian" => Some("Obsidian"),
+        "obsidian" | "md.obsidian.obsidian" => Some("Obsidian"),
         "thunderbird" => Some("Thunderbird"),
         "nautilus" | "org.gnome.nautilus" => Some("Files"),
         "dolphin" => Some("Dolphin"),
         "zathura" => Some("Zathura"),
+        "cs2" => Some("CS2"),
+        "zenity" => Some("System Dialog"),
+        "xdg-desktop-portal"
+        | "xdg-desktop-portal-gtk"
+        | "xdg-desktop-portal-gnome"
+        | "xdg-desktop-portal-kde"
+        | "xdg-desktop-portal-lxqt"
+        | "xdg-desktop-portal-wlr"
+        | "xdg-desktop-portal-hyprland" => Some("Portal"),
         _ => None,
     };
     if let Some(canonical) = canonical {
@@ -209,6 +221,12 @@ pub fn normalize_app(class: &str) -> Option<String> {
         }
     }
     if name.is_empty() { None } else { Some(name) }
+}
+
+/// User-facing label for stored app keys. Older databases contain WM_CLASS
+/// names that were normalized before newer aliases existed.
+pub fn display_label(app: &str) -> String {
+    normalize_app(app).unwrap_or_else(|| app.to_owned())
 }
 
 pub fn display_name(app: &str, max_chars: usize) -> String {
@@ -294,9 +312,28 @@ mod tests {
             normalize_app("org.gnome.Nautilus").as_deref(),
             Some("Files")
         );
+        assert_eq!(
+            normalize_app("org.signal.Signal").as_deref(),
+            Some("Signal")
+        );
+        assert_eq!(
+            normalize_app("xdg-desktop-portal-gtk").as_deref(),
+            Some("Portal")
+        );
+        assert_eq!(normalize_app("zenity").as_deref(), Some("System Dialog"));
+        assert_eq!(normalize_app("cs2").as_deref(), Some("CS2"));
         assert_eq!(normalize_app(""), None);
         assert_eq!(normalize_app("rofi"), None);
         assert_eq!(normalize_app("hyprlock"), None);
+    }
+
+    #[test]
+    fn legacy_app_keys_get_readable_labels() {
+        assert_eq!(display_label("org.signal.Signal"), "Signal");
+        assert_eq!(display_label("Xdg-desktop-portal-gtk"), "Portal");
+        assert_eq!(display_label("Zenity"), "System Dialog");
+        assert_eq!(display_label("Cs2"), "CS2");
+        assert_eq!(display_label("Foot"), "Foot");
     }
 
     #[test]

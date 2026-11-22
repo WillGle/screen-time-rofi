@@ -1,5 +1,5 @@
 use crate::config::{Config, LayoutMode};
-use crate::sessions::display_name;
+use crate::sessions::{display_label, display_name};
 use crate::theme::Theme;
 use crate::timeutil::{self, SLOT_COUNT};
 use crate::view::{AppRow, DayView, DetailView, OtherRow, TOP_APPS};
@@ -138,8 +138,9 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
     let summary = if let Some(top) = view.rows.first() {
         let category = AppCategory::from_app(&top.name);
         let dot = role_span("●", category.color(theme), mode);
+        let top_label = display_label(&top.name);
         let name = styled_span(
-            &markup_text(&top.name, mode),
+            &markup_text(&top_label, mode),
             &theme.text,
             Some("600"),
             mode,
@@ -346,6 +347,9 @@ impl AppCategory {
             "files",
             "nautilus",
             "portal",
+            "xdg",
+            "dialog",
+            "zenity",
             "settings",
             "system monitor",
             "task manager",
@@ -485,9 +489,10 @@ fn app_line(
     let color = category.color(theme);
     let rank = role_span(&format!("{rank:>2}"), &theme.muted, mode);
     let dot = role_span("●", color, mode);
+    let label = display_label(&row.name);
     let name = format!(
         "{:<width$}",
-        display_name(&row.name, NAME_WIDTH),
+        display_name(&label, NAME_WIDTH),
         width = NAME_WIDTH
     );
     let name = styled_span(&markup_text(&name, mode), &theme.text, Some("600"), mode);
@@ -574,7 +579,8 @@ pub(crate) fn render_detail_with_theme(
     let width = layout.screen_width();
     let category = AppCategory::from_app(&view.app);
     let color = category.color(theme);
-    let app = display_name(&view.app, if layout.cell_width == 1 { 16 } else { 24 });
+    let label = display_label(&view.app);
+    let app = display_name(&label, if layout.cell_width == 1 { 16 } else { 24 });
     let name = markup_text(app.trim_end(), mode);
     let title = styled_span(&format!("● {name}"), color, Some("700"), mode);
     let total = timeutil::format_duration(view.total_seconds);
@@ -1068,6 +1074,10 @@ mod tests {
         assert_eq!(AppCategory::from_app("Music"), AppCategory::Entertainment);
         assert_eq!(AppCategory::from_app("Gimp"), AppCategory::Entertainment);
         assert_eq!(AppCategory::from_app("Files"), AppCategory::System);
+        assert_eq!(AppCategory::from_app("Portal"), AppCategory::System);
+        assert_eq!(AppCategory::from_app("System Dialog"), AppCategory::System);
+        assert_eq!(AppCategory::from_app("Signal"), AppCategory::Communication);
+        assert_eq!(AppCategory::from_app("CS2"), AppCategory::Entertainment);
         assert_eq!(AppCategory::from_app("Football"), AppCategory::Unknown);
         assert_eq!(
             AppCategory::from_app("org.mozilla.firefox"),
