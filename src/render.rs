@@ -810,14 +810,12 @@ fn visible_len(value: &str) -> usize {
 }
 
 fn ruler(width: usize) -> String {
-    let mut line = vec![' '; width];
+    let mut line = vec![' '; width + 2];
     for hour in (0..=24).step_by(2) {
-        let position = (width * hour / 24).min(width - 2);
+        let position = width * hour / 24;
         let label = format!("{hour:02}");
         for (offset, character) in label.chars().enumerate() {
-            if position + offset < width {
-                line[position + offset] = character;
-            }
+            line[position + offset] = character;
         }
     }
     line.iter().collect()
@@ -980,9 +978,9 @@ mod tests {
     fn ruler_matches_each_timeline_width() {
         for width in [48, 96] {
             let ticks = ruler(width);
-            assert_eq!(ticks.len(), width);
+            assert_eq!(ticks.len(), width + 2);
             for hour in (0..=24).step_by(2) {
-                let start = (width * hour / 24).min(width - 2);
+                let start = width * hour / 24;
                 assert_eq!(&ticks[start..start + 2], format!("{hour:02}"));
             }
         }
