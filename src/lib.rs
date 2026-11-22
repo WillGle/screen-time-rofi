@@ -11,6 +11,7 @@ pub mod migrations;
 pub mod paths;
 pub mod render;
 pub mod sessions;
+pub mod sha256;
 pub mod snapshot;
 pub mod theme;
 pub mod timeutil;

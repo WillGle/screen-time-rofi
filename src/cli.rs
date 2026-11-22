@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
 use crate::paths::Paths;
-use crate::{daemon, doctor, render, ui, view};
+use crate::{daemon, doctor, render, snapshot, ui, view};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -24,11 +26,60 @@ pub enum Command {
     /// Render the main screen or one app detail.
     Render(RenderArgs),
     /// Check runtime, database, and snapshot health.
-    Doctor,
+    Doctor(DoctorArgs),
+    /// Write a consistent database snapshot and manifest.
+    Snapshot(SnapshotArgs),
+    /// Compare the live database with a pre-update snapshot fingerprint.
+    CheckData(CheckDataArgs),
+    /// Print the schema version supported by this binary.
+    SchemaVersion,
+    /// Checkpoint and truncate the database WAL.
+    Checkpoint,
+}
+
+#[derive(Debug, Args)]
+pub struct CheckDataArgs {
+    /// Snapshot directory created by `screen-time snapshot` (or its manifest).
+    #[arg(long, value_name = "DIR")]
+    pub against: PathBuf,
+
+    /// Emit a machine-readable JSON report.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Accept a documented schema migration or expected data change.
+    #[arg(long)]
+    pub allow_migration: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct DaemonArgs {}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Emit a stable machine-readable JSON report.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Skip Hyprland, Rofi, logind, and runtime-directory checks.
+    #[arg(long)]
+    pub no_runtime: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SnapshotArgs {
+    /// Destination directory. Must not already exist.
+    #[arg(long, value_name = "DIR")]
+    pub to: PathBuf,
+
+    /// Print the snapshot manifest as JSON.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Do not record the config file hash in the manifest.
+    #[arg(long)]
+    pub no_config_hash: bool,
+}
 
 #[derive(Debug, Args)]
 pub struct RenderArgs {
@@ -55,8 +106,93 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Daemon(_) => daemon::run(),
         Command::Render(args) => run_render(args),
-        Command::Doctor => doctor::run(),
+        Command::Doctor(args) => doctor::run(&doctor::Options {
+            json: args.json,
+            no_runtime: args.no_runtime,
+        }),
+        Command::Snapshot(args) => run_snapshot(args),
+        Command::CheckData(args) => run_check_data(args),
+        Command::SchemaVersion => {
+            println!("{}", crate::migrations::CURRENT_VERSION);
+            Ok(())
+        }
+        Command::Checkpoint => {
+            let paths = Paths::resolve()?;
+            let db = crate::db::Database::open_snapshot_source(&paths.db_path)?;
+            db.checkpoint()?;
+            println!("checkpointed {}", paths.db_path.display());
+            Ok(())
+        }
     }
+}
+
+fn run_check_data(args: CheckDataArgs) -> Result<()> {
+    let paths = Paths::resolve()?;
+    let snapshot_dir = if args.against.is_dir() {
+        args.against.clone()
+    } else {
+        args.against
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| args.against.clone())
+    };
+    let report = snapshot::check_database_against_snapshot(
+        &paths.db_path,
+        &snapshot_dir,
+        args.allow_migration,
+    )?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if report.ok {
+        println!(
+            "data check ok: schema {}, {} counts, {} session seconds, {} apps",
+            report.actual_schema_version,
+            report
+                .actual_fingerprint
+                .counts
+                .get("sessions")
+                .copied()
+                .unwrap_or(0),
+            report.actual_fingerprint.session_seconds,
+            report.actual_fingerprint.app_keys.len()
+        );
+    } else {
+        for difference in &report.differences {
+            eprintln!("data check: {difference}");
+        }
+    }
+    if !report.ok {
+        anyhow::bail!(
+            "data check failed ({} difference(s))",
+            report.differences.len()
+        );
+    }
+    Ok(())
+}
+
+fn run_snapshot(args: SnapshotArgs) -> Result<()> {
+    let paths = Paths::resolve()?;
+    let manifest =
+        snapshot::create_database_snapshot(&paths.db_path, &args.to, !args.no_config_hash)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&manifest)?);
+    } else {
+        println!("snapshot: {}", args.to.display());
+        println!("database: {}", manifest.snapshot_db);
+        println!("sha256: {}", manifest.sha256);
+        println!("quick_check: {}", manifest.quick_check);
+        println!("schema_version: {}", manifest.schema_version);
+        println!(
+            "counts: {} events, {} sessions",
+            manifest.counts.get("events").copied().unwrap_or(0),
+            manifest.counts.get("sessions").copied().unwrap_or(0)
+        );
+        println!(
+            "fingerprint: {} session seconds, app-key hash {}",
+            manifest.fingerprint.session_seconds, manifest.fingerprint.app_key_hash
+        );
+    }
+    Ok(())
 }
 
 fn run_render(args: RenderArgs) -> Result<()> {

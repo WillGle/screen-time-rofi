@@ -1,123 +1,351 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::capture;
-use crate::db::Database;
+use crate::config::{Config, StorageConfig};
+use crate::db::{DataFingerprint, Database, RetentionPolicy};
 use crate::idle;
 use crate::paths::{self, Paths};
-use crate::snapshot;
+use crate::snapshot::{self, backup_usage, directory_size, file_size};
 use crate::timeutil;
 
-pub fn run() -> Result<()> {
-    let paths = Paths::resolve()?;
-    let mut report = Report::default();
-    report.section("screen-time doctor");
-    report.ok(format!("version {}", env!("CARGO_PKG_VERSION")));
-    report.ok(format!("state {}", paths.state_dir.display()));
-    report.ok(format!("runtime {}", paths.runtime_dir.display()));
+pub struct Options {
+    pub json: bool,
+    pub no_runtime: bool,
+}
 
-    if paths.state_dir.is_dir() {
-        report.ok("state directory exists");
-    } else {
-        report.warn("state directory not created yet; start the daemon once");
+#[derive(Debug, Serialize)]
+pub struct DoctorReport {
+    pub version: String,
+    pub ok: bool,
+    pub mode: &'static str,
+    pub state_dir: String,
+    pub runtime_dir: String,
+    pub db_path: String,
+    pub db_exists: bool,
+    pub schema_version: Option<i64>,
+    pub quick_check: Option<String>,
+    pub counts: BTreeMap<String, i64>,
+    pub fingerprint: Option<DataFingerprint>,
+    pub retention: RetentionReport,
+    pub sizes: SizeReport,
+    pub service_state: String,
+    pub snapshot: SnapshotReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<RuntimeReport>,
+    pub warnings: Vec<String>,
+    pub failures: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RetentionReport {
+    pub enabled: bool,
+    pub events_days: Option<u32>,
+    pub sessions_days: Option<u32>,
+    pub aggregates_days: Option<u32>,
+    pub power_days: Option<u32>,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SizeReport {
+    pub database_bytes: u64,
+    pub wal_bytes: u64,
+    pub shm_bytes: u64,
+    pub update_backups_bytes: u64,
+    pub update_backups_count: usize,
+    pub migration_backups_bytes: u64,
+    pub migration_backups_count: usize,
+    pub total_bytes: u64,
+    pub warn_threshold_bytes: u64,
+    pub hard_threshold_bytes: u64,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct SnapshotReport {
+    pub present: bool,
+    pub fresh: bool,
+    pub date: Option<String>,
+    pub as_of: Option<String>,
+    pub age_seconds: Option<i64>,
+    pub pid: Option<u32>,
+    pub boot_id_matches: Option<bool>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct RuntimeReport {
+    pub hyprland_available: bool,
+    pub hyprland_signature: Option<String>,
+    pub active_app: Option<String>,
+    pub idle_available: bool,
+    pub idle: Option<bool>,
+    pub rofi_available: bool,
+    pub rofi_version: Option<String>,
+    pub runtime_writable: Option<bool>,
+}
+
+pub fn run(options: &Options) -> Result<()> {
+    let paths = Paths::resolve()?;
+    let mut warnings = Vec::new();
+    let mut failures = Vec::new();
+
+    let (config, config_error) = Config::load_default_lenient();
+    if let Some(error) = config_error {
+        warnings.push(format!(
+            "config is invalid; using keep-all retention: {error:#}"
+        ));
     }
-    if paths.runtime_dir.is_dir() {
-        report.ok("runtime directory exists");
-    } else {
-        report.warn("runtime directory missing; live snapshot is unavailable");
-    }
+    let retention_policy = RetentionPolicy::from_config(&config.retention);
+
+    let db_exists = paths.db_path.is_file();
+    let mut schema_version = None;
+    let mut quick_check = None;
+    let mut counts = BTreeMap::new();
+    let mut fingerprint = None;
 
     match Database::open_read(&paths.db_path) {
         Ok(db) => {
-            report.ok(format!("database {}", paths.db_path.display()));
+            schema_version = db.schema_version().ok();
             match db.integrity_check() {
-                Ok(result) if result.eq_ignore_ascii_case("ok") => {
-                    report.ok("database quick_check ok");
+                Ok(result) => {
+                    if result.eq_ignore_ascii_case("ok") {
+                        quick_check = Some(result);
+                    } else {
+                        quick_check = Some(result.clone());
+                        failures.push(format!("database quick_check: {result}"));
+                    }
                 }
-                Ok(result) => report.fail(format!("database quick_check: {result}")),
-                Err(error) => report.fail(format!("database quick_check: {error:#}")),
+                Err(error) => failures.push(format!("database quick_check: {error:#}")),
             }
             match db.journal_mode() {
-                Ok(mode) if mode.eq_ignore_ascii_case("wal") => report.ok("journal_mode=wal"),
-                Ok(mode) => report.warn(format!("journal_mode={mode} (expected wal)")),
-                Err(error) => report.warn(format!("cannot read journal_mode: {error:#}")),
+                Ok(mode) if mode.eq_ignore_ascii_case("wal") => {}
+                Ok(mode) => warnings.push(format!("journal_mode={mode} (expected wal)")),
+                Err(error) => warnings.push(format!("cannot read journal_mode: {error:#}")),
             }
-            if let Ok((events, sessions)) = db.counts() {
-                report.ok(format!("{events} raw events, {sessions} sessions"));
+            match db.table_counts() {
+                Ok(value) => counts = value,
+                Err(error) => failures.push(format!("cannot count database rows: {error:#}")),
             }
-            if let Some(commit) = db.last_commit_at().ok().flatten() {
-                report.ok(format!("last batch commit {commit}"));
+            match db.fingerprint() {
+                Ok(value) => fingerprint = Some(value),
+                Err(error) => failures.push(format!("cannot fingerprint database: {error:#}")),
             }
         }
         Err(error) => {
-            if paths.db_exists() {
-                report.fail(format!("cannot open database: {error:#}"));
+            if db_exists {
+                failures.push(format!("cannot open database: {error:#}"));
             } else {
-                report.warn("database not created yet; start the daemon once");
+                warnings.push("database not created yet; start the daemon once".to_owned());
             }
         }
     }
 
+    let sizes = size_report(&paths, &config.storage);
+    if sizes.database_bytes >= sizes.hard_threshold_bytes {
+        warnings.push(format!(
+            "database is {} MiB, above the {} MiB hard warning threshold",
+            sizes.database_bytes / (1024 * 1024),
+            sizes.hard_threshold_bytes / (1024 * 1024)
+        ));
+    } else if sizes.database_bytes >= sizes.warn_threshold_bytes {
+        warnings.push(format!(
+            "database is {} MiB, above the {} MiB warning threshold",
+            sizes.database_bytes / (1024 * 1024),
+            sizes.warn_threshold_bytes / (1024 * 1024)
+        ));
+    }
+    if retention_policy.is_enabled() {
+        warnings.push(format!(
+            "retention is enabled ({}); history older than these cutoffs is deleted on startup and rollover",
+            retention_policy.summary()
+        ));
+    }
+
+    let snapshot = snapshot_report(&paths, &mut warnings);
+    let service_state = service_state();
+    if service_state != "active" {
+        warnings.push(format!(
+            "systemd user service is {} (journalctl --user -u screen-time)",
+            if service_state.is_empty() {
+                "unknown"
+            } else {
+                &service_state
+            }
+        ));
+    }
+
+    let runtime = if options.no_runtime {
+        None
+    } else {
+        Some(runtime_report(&paths, &mut warnings, &mut failures))
+    };
+
+    let report = DoctorReport {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        ok: failures.is_empty(),
+        mode: if options.no_runtime {
+            "no-runtime"
+        } else {
+            "full"
+        },
+        state_dir: paths.state_dir.display().to_string(),
+        runtime_dir: paths.runtime_dir.display().to_string(),
+        db_path: paths.db_path.display().to_string(),
+        db_exists,
+        schema_version,
+        quick_check,
+        counts,
+        fingerprint,
+        retention: RetentionReport {
+            enabled: retention_policy.is_enabled(),
+            events_days: retention_policy.events_days,
+            sessions_days: retention_policy.sessions_days,
+            aggregates_days: retention_policy.aggregates_days,
+            power_days: retention_policy.power_days,
+            summary: retention_policy.summary(),
+        },
+        sizes,
+        service_state,
+        snapshot,
+        runtime,
+        warnings,
+        failures,
+    };
+
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_text(&report);
+    }
+    if !report.ok {
+        anyhow::bail!("doctor found {} problem(s)", report.failures.len());
+    }
+    Ok(())
+}
+
+fn size_report(paths: &Paths, storage: &StorageConfig) -> SizeReport {
+    let (update_backups_bytes, update_backups_count) = backup_usage(&paths.backups_dir);
+    let (migration_backups_bytes, migration_backups_count) =
+        backup_usage(&paths.migration_backups_dir);
+    let database_bytes = file_size(&paths.db_path);
+    let wal_path = std::path::PathBuf::from(format!("{}-wal", paths.db_path.display()));
+    let shm_path = std::path::PathBuf::from(format!("{}-shm", paths.db_path.display()));
+    let wal_bytes = file_size(&wal_path);
+    let shm_bytes = file_size(&shm_path);
+    SizeReport {
+        database_bytes,
+        wal_bytes,
+        shm_bytes,
+        update_backups_bytes,
+        update_backups_count,
+        migration_backups_bytes,
+        migration_backups_count,
+        total_bytes: database_bytes
+            + wal_bytes
+            + shm_bytes
+            + update_backups_bytes
+            + migration_backups_bytes,
+        warn_threshold_bytes: storage.warn_db_mib() * 1024 * 1024,
+        hard_threshold_bytes: storage.hard_db_mib() * 1024 * 1024,
+    }
+}
+
+fn snapshot_report(paths: &Paths, warnings: &mut Vec<String>) -> SnapshotReport {
     match snapshot::read(&paths.live_path) {
         Ok(Some(snapshot)) => {
             let now_ts = timeutil::now().timestamp();
-            let boot_id = paths::boot_id();
             let age = snapshot
                 .as_of_local()
                 .map(|as_of| now_ts - as_of.timestamp())
                 .unwrap_or(i64::MAX);
-            report.ok(format!(
-                "live snapshot {} as_of={} age={}s",
-                snapshot.date, snapshot.as_of, age
-            ));
-            if snapshot.boot_id != boot_id {
-                report.warn(format!(
+            let boot_id = paths::boot_id();
+            let boot_id_matches = snapshot.boot_id == boot_id;
+            if !boot_id_matches {
+                warnings.push(format!(
                     "live snapshot boot_id {} differs from current {}",
                     snapshot.boot_id, boot_id
                 ));
             }
             if !paths::pid_alive(snapshot.pid) {
-                report.warn(format!("live snapshot pid {} is not running", snapshot.pid));
+                warnings.push(format!("live snapshot pid {} is not running", snapshot.pid));
             }
-            if snapshot.is_stale(now_ts, &boot_id) {
-                report.warn("live snapshot is stale (open intervals are not extended)");
-            } else {
-                report.ok("live snapshot is fresh");
+            let fresh = !snapshot.is_stale(now_ts, &boot_id);
+            if !fresh {
+                warnings
+                    .push("live snapshot is stale (open intervals are not extended)".to_owned());
+            }
+            SnapshotReport {
+                present: true,
+                fresh,
+                date: Some(snapshot.date.clone()),
+                as_of: Some(snapshot.as_of.clone()),
+                age_seconds: (age != i64::MAX).then_some(age),
+                pid: Some(snapshot.pid),
+                boot_id_matches: Some(boot_id_matches),
             }
         }
-        Ok(None) => report.warn("live snapshot missing; daemon is stopped or not ready"),
-        Err(error) => report.fail(format!("live snapshot unreadable: {error:#}")),
+        Ok(None) => {
+            warnings.push("live snapshot missing; daemon is stopped or not ready".to_owned());
+            SnapshotReport::default()
+        }
+        Err(error) => {
+            warnings.push(format!("live snapshot unreadable: {error:#}"));
+            SnapshotReport::default()
+        }
+    }
+}
+
+fn service_state() -> String {
+    let output = Command::new("systemctl")
+        .args(["--user", "is-active", "screen-time.service"])
+        .output();
+    match output {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        Err(_) => "unknown".to_owned(),
+    }
+}
+
+fn runtime_report(
+    paths: &Paths,
+    warnings: &mut Vec<String>,
+    failures: &mut Vec<String>,
+) -> RuntimeReport {
+    let mut report = RuntimeReport::default();
+
+    if paths.state_dir.is_dir() {
+        // Nothing to report: a missing state directory is a warning below.
+    } else {
+        warnings.push("state directory not created yet; start the daemon once".to_owned());
+    }
+    if paths.runtime_dir.is_dir() {
+        report.runtime_writable = Some(check_writable(&paths.runtime_dir, failures));
+    } else {
+        warnings.push("runtime directory missing; live snapshot is unavailable".to_owned());
+        report.runtime_writable = Some(false);
     }
 
     match capture::discover() {
         Some(hypr) => {
-            report.ok(format!(
-                "Hyprland {} ({})",
-                hypr.signature,
-                hypr.event_socket.display()
-            ));
+            report.hyprland_available = true;
+            report.hyprland_signature = Some(hypr.signature.clone());
             match capture::query_active_window(&hypr.command_socket) {
-                Ok(Some(app)) => report.ok(format!("active app {app}")),
-                Ok(None) => report.warn("Hyprland reports no active app window"),
-                Err(error) => report.warn(format!("active-window query failed: {error:#}")),
+                Ok(Some(app)) => report.active_app = Some(app),
+                Ok(None) => warnings.push("Hyprland reports no active app window".to_owned()),
+                Err(error) => warnings.push(format!("active-window query failed: {error:#}")),
             }
         }
-        None => report.warn("Hyprland event socket not found; tracking is inactive"),
+        None => warnings.push("Hyprland event socket not found; tracking is inactive".to_owned()),
     }
 
     let idle_probe = idle::probe();
-    if idle_probe.available {
-        report.ok(format!(
-            "logind IdleHint available (idle={})",
-            idle_probe
-                .idle
-                .map(|idle| if idle { "yes" } else { "no" })
-                .unwrap_or("unknown")
-        ));
-    } else {
-        report.warn(format!(
+    report.idle_available = idle_probe.available;
+    report.idle = idle_probe.idle;
+    if !idle_probe.available {
+        warnings.push(format!(
             "logind IdleHint unavailable: {}",
             idle_probe
                 .error
@@ -128,81 +356,117 @@ pub fn run() -> Result<()> {
     match Command::new("rofi").arg("-version").output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            report.ok(format!("rofi {version}"));
+            report.rofi_available = true;
+            report.rofi_version = Some(version);
         }
-        Ok(_) => report.warn("rofi is installed but `rofi -version` failed"),
-        Err(_) => report.warn("rofi is not installed or not in PATH"),
+        Ok(_) => warnings.push("rofi is installed but `rofi -version` failed".to_owned()),
+        Err(_) => warnings.push("rofi is not installed or not in PATH".to_owned()),
     }
-
-    match Command::new("systemctl")
-        .args(["--user", "is-active", "screen-time.service"])
-        .output()
-    {
-        Ok(output) => {
-            let state = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            if state == "active" {
-                report.ok("systemd user service active");
-            } else {
-                report.warn(format!(
-                    "systemd user service is {} (journalctl --user -u screen-time)",
-                    if state.is_empty() { "unknown" } else { &state }
-                ));
-            }
-        }
-        Err(error) => report.warn(format!("systemctl --user unavailable: {error}")),
-    }
-
-    check_writable(&paths.runtime_dir, &mut report);
-    report.finish()
+    report
 }
 
-fn check_writable(path: &Path, report: &mut Report) {
+fn check_writable(path: &Path, failures: &mut Vec<String>) -> bool {
     if !path.is_dir() {
-        return;
+        return false;
     }
     let probe = path.join(format!(".doctor-{}", std::process::id()));
     match std::fs::write(&probe, b"ok") {
         Ok(()) => {
             let _ = std::fs::remove_file(&probe);
-            report.ok("runtime directory is writable");
+            true
         }
-        Err(error) => report.fail(format!("runtime directory is not writable: {error}")),
+        Err(error) => {
+            failures.push(format!(
+                "runtime directory {} is not writable: {error}",
+                path.display()
+            ));
+            false
+        }
     }
 }
 
-#[derive(Default)]
-struct Report {
-    failures: usize,
-    warnings: usize,
-}
-
-impl Report {
-    fn section(&self, title: &str) {
-        println!("{title}");
-    }
-
-    fn ok(&self, message: impl AsRef<str>) {
-        println!("  ok    {}", message.as_ref());
-    }
-
-    fn warn(&mut self, message: impl AsRef<str>) {
-        self.warnings += 1;
-        println!("  warn  {}", message.as_ref());
-    }
-
-    fn fail(&mut self, message: impl AsRef<str>) {
-        self.failures += 1;
-        println!("  fail  {}", message.as_ref());
-    }
-
-    fn finish(&self) -> Result<()> {
+fn print_text(report: &DoctorReport) {
+    println!("screen-time doctor");
+    println!("  ok    version {}", report.version);
+    println!("  ok    state {}", report.state_dir);
+    println!("  ok    runtime {}", report.runtime_dir);
+    if report.db_exists {
+        println!("  ok    database {}", report.db_path);
+        if let Some(schema) = report.schema_version {
+            println!("  ok    schema version {schema}");
+        }
+        if let Some(check) = &report.quick_check {
+            println!("  ok    database quick_check {check}");
+        }
         println!(
-            "\n{} failure(s), {} warning(s)",
-            self.failures, self.warnings
+            "  ok    {} raw events, {} sessions",
+            report.counts.get("events").copied().unwrap_or(0),
+            report.counts.get("sessions").copied().unwrap_or(0)
         );
-        if self.failures > 0 {
-            anyhow::bail!("doctor found {} problem(s)", self.failures);
+        if let Some(fingerprint) = &report.fingerprint {
+            println!(
+                "  ok    {} total session seconds, app-key hash {}",
+                fingerprint.session_seconds, fingerprint.app_key_hash
+            );
         }
-        Ok(())
+    } else {
+        println!("  warn  database not created yet; start the daemon once");
     }
+    println!(
+        "  ok    retention={}, database {} B, wal {} B, shm {} B",
+        report.retention.summary,
+        report.sizes.database_bytes,
+        report.sizes.wal_bytes,
+        report.sizes.shm_bytes
+    );
+    println!(
+        "  ok    update backups {} B in {} dir(s); migration backups {} B in {} dir(s)",
+        report.sizes.update_backups_bytes,
+        report.sizes.update_backups_count,
+        report.sizes.migration_backups_bytes,
+        report.sizes.migration_backups_count
+    );
+    if report.snapshot.present {
+        println!(
+            "  ok    live snapshot {} as_of={} age={}s",
+            report.snapshot.date.as_deref().unwrap_or("?"),
+            report.snapshot.as_of.as_deref().unwrap_or("?"),
+            report
+                .snapshot
+                .age_seconds
+                .map(|age| age.to_string())
+                .unwrap_or_else(|| "unknown".to_owned())
+        );
+    }
+    println!("  ok    service_state={}", report.service_state);
+    if let Some(runtime) = &report.runtime {
+        if runtime.hyprland_available {
+            println!(
+                "  ok    Hyprland {}",
+                runtime.hyprland_signature.as_deref().unwrap_or("")
+            );
+        }
+        if runtime.rofi_available {
+            println!(
+                "  ok    rofi {}",
+                runtime.rofi_version.as_deref().unwrap_or("")
+            );
+        }
+    }
+    for warning in &report.warnings {
+        println!("  warn  {warning}");
+    }
+    for failure in &report.failures {
+        println!("  fail  {failure}");
+    }
+    println!(
+        "\n{} failure(s), {} warning(s)",
+        report.failures.len(),
+        report.warnings.len()
+    );
+}
+
+/// Recursively measure a directory. Kept public for restore drills and tests.
+pub fn dir_size(path: &Path) -> u64 {
+    directory_size(path)
 }

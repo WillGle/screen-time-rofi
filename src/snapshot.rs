@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
+use crate::db::{DataFingerprint, Database};
 use crate::paths;
 use crate::timeutil::{self, SLOT_COUNT};
 
@@ -276,6 +277,300 @@ pub fn read(path: &Path) -> Result<Option<LiveSnapshot>> {
     Ok(Some(snapshot))
 }
 
+/// Manifest written beside a database snapshot. It is deliberately
+/// self-describing: the installer can verify an update backup without any
+/// SQLite tooling.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseSnapshotManifest {
+    pub version: u32,
+    pub created_at: String,
+    pub source_db: String,
+    pub snapshot_db: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub schema_version: i64,
+    pub quick_check: String,
+    pub counts: BTreeMap<String, i64>,
+    pub fingerprint: DataFingerprint,
+    pub config_sha256: Option<String>,
+}
+
+pub const DATABASE_SNAPSHOT_VERSION: u32 = 1;
+
+/// Create a consistent copy of the live database with `VACUUM INTO`.
+///
+/// The destination must not exist yet. The snapshot directory is created with
+/// mode `0700`, the database and manifest with `0600`. The function verifies
+/// `quick_check`, records counts and the data fingerprint, and fsyncs the
+/// output before returning.
+pub fn create_database_snapshot(
+    source_db: &Path,
+    to: &Path,
+    include_config_hash: bool,
+) -> Result<DatabaseSnapshotManifest> {
+    if to.exists() {
+        bail!("snapshot destination already exists: {}", to.display());
+    }
+    if !source_db.is_file() {
+        bail!("database {} does not exist", source_db.display());
+    }
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(to)
+        .with_context(|| format!("cannot create snapshot directory {}", to.display()))?;
+    let snapshot_db = to.join("screen-time.db");
+    let manifest_path = to.join("manifest.json");
+
+    let result = (|| -> Result<DatabaseSnapshotManifest> {
+        let db = Database::open_snapshot_source(source_db)?;
+        db.connection()
+            .execute(
+                "VACUUM INTO ?1",
+                rusqlite::params![snapshot_db.to_string_lossy()],
+            )
+            .with_context(|| format!("cannot snapshot database into {}", snapshot_db.display()))?;
+        drop(db);
+
+        let snapshot = Database::open_read(&snapshot_db)?;
+        let schema_version = snapshot.schema_version()?;
+        let quick_check = snapshot.integrity_check()?;
+        if !quick_check.eq_ignore_ascii_case("ok") {
+            bail!("snapshot quick_check failed: {quick_check}");
+        }
+        let counts = snapshot.table_counts()?;
+        let fingerprint = snapshot.fingerprint()?;
+        drop(snapshot);
+
+        fs::set_permissions(&snapshot_db, fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("cannot set permissions on {}", snapshot_db.display()))?;
+        let sha256 = crate::sha256::file_digest(&snapshot_db)?;
+        let size_bytes = fs::metadata(&snapshot_db)
+            .with_context(|| format!("cannot stat {}", snapshot_db.display()))?
+            .len();
+        sync_file(&snapshot_db)?;
+
+        let config_sha256 = if include_config_hash {
+            let config = crate::config::default_config_path();
+            if config.is_file() {
+                Some(crate::sha256::file_digest(&config)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let manifest = DatabaseSnapshotManifest {
+            version: DATABASE_SNAPSHOT_VERSION,
+            created_at: timeutil::rfc3339(timeutil::now().timestamp()),
+            source_db: source_db.display().to_string(),
+            snapshot_db: snapshot_db.display().to_string(),
+            sha256,
+            size_bytes,
+            schema_version,
+            quick_check,
+            counts,
+            fingerprint,
+            config_sha256,
+        };
+        write_private_json(&manifest_path, &manifest)?;
+        sync_dir(to)?;
+        Ok(manifest)
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_dir_all(to);
+    }
+    result
+}
+
+/// Result of comparing the live database with a pre-update snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DataCheckReport {
+    pub ok: bool,
+    pub expected_schema_version: i64,
+    pub actual_schema_version: i64,
+    pub expected_fingerprint: DataFingerprint,
+    pub actual_fingerprint: DataFingerprint,
+    pub expected_quick_check: String,
+    pub actual_quick_check: String,
+    pub allow_migration: bool,
+    pub differences: Vec<String>,
+}
+
+/// Compare the live database with the fingerprint recorded in a snapshot
+/// manifest. This fails closed: any unexpected count, second, or app-key
+/// difference is an update failure.
+pub fn check_database_against_snapshot(
+    live_db: &Path,
+    snapshot_dir: &Path,
+    allow_migration: bool,
+) -> Result<DataCheckReport> {
+    let expected = read_database_snapshot_manifest(&snapshot_dir.join("manifest.json"))?;
+    let actual_db = Database::open_read(live_db)?;
+    let actual_fingerprint = actual_db.fingerprint()?;
+    let actual_schema_version = actual_db.schema_version()?;
+    let actual_quick_check = actual_db.integrity_check()?;
+    let mut differences = Vec::new();
+
+    if !actual_quick_check.eq_ignore_ascii_case("ok") {
+        differences.push(format!("quick_check: {actual_quick_check}"));
+    }
+    if actual_schema_version != expected.schema_version && !allow_migration {
+        differences.push(format!(
+            "schema_version: expected {}, got {}",
+            expected.schema_version, actual_schema_version
+        ));
+    }
+    if actual_fingerprint != expected.fingerprint && !allow_migration {
+        for (table, expected_count) in &expected.fingerprint.counts {
+            let actual_count = actual_fingerprint.counts.get(table).copied().unwrap_or(0);
+            if actual_count != *expected_count {
+                differences.push(format!(
+                    "count {table}: expected {expected_count}, got {actual_count}"
+                ));
+            }
+        }
+        if actual_fingerprint.session_seconds != expected.fingerprint.session_seconds {
+            differences.push(format!(
+                "session seconds: expected {}, got {}",
+                expected.fingerprint.session_seconds, actual_fingerprint.session_seconds
+            ));
+        }
+        if actual_fingerprint.app_key_hash != expected.fingerprint.app_key_hash {
+            differences.push(format!(
+                "app keys: expected {}, got {}",
+                expected.fingerprint.app_key_hash, actual_fingerprint.app_key_hash
+            ));
+        }
+    }
+    Ok(DataCheckReport {
+        ok: differences.is_empty(),
+        expected_schema_version: expected.schema_version,
+        actual_schema_version,
+        expected_fingerprint: expected.fingerprint,
+        actual_fingerprint,
+        expected_quick_check: expected.quick_check,
+        actual_quick_check,
+        allow_migration,
+        differences,
+    })
+}
+
+pub fn read_database_snapshot_manifest(path: &Path) -> Result<DatabaseSnapshotManifest> {
+    let bytes = fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let manifest: DatabaseSnapshotManifest = serde_json::from_slice(&bytes)
+        .with_context(|| format!("cannot parse {}", path.display()))?;
+    if manifest.version != DATABASE_SNAPSHOT_VERSION {
+        bail!(
+            "unsupported snapshot manifest version {} (expected {})",
+            manifest.version,
+            DATABASE_SNAPSHOT_VERSION
+        );
+    }
+    Ok(manifest)
+}
+
+/// Verify that a snapshot file still matches its manifest. Returns the
+/// manifest on success.
+pub fn verify_database_snapshot(path: &Path) -> Result<DatabaseSnapshotManifest> {
+    let manifest = read_database_snapshot_manifest(&path.join("manifest.json"))?;
+    let db_path = path.join("screen-time.db");
+    let actual = crate::sha256::file_digest(&db_path)?;
+    if actual != manifest.sha256 {
+        bail!(
+            "snapshot {} checksum mismatch: expected {}, got {}",
+            db_path.display(),
+            manifest.sha256,
+            actual
+        );
+    }
+    let size = fs::metadata(&db_path)
+        .with_context(|| format!("cannot stat {}", db_path.display()))?
+        .len();
+    if size != manifest.size_bytes {
+        bail!(
+            "snapshot {} size mismatch: expected {}, got {}",
+            db_path.display(),
+            manifest.size_bytes,
+            size
+        );
+    }
+    Ok(manifest)
+}
+
+fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(value).context("cannot serialize manifest")?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    file.write_all(&bytes)
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    file.write_all(b"\n")?;
+    file.sync_all()
+        .with_context(|| format!("cannot fsync {}", path.display()))?;
+    Ok(())
+}
+
+fn sync_file(path: &Path) -> Result<()> {
+    let file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("cannot fsync {}", path.display()))?;
+    Ok(())
+}
+
+fn sync_dir(path: &Path) -> Result<()> {
+    let dir = fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    dir.sync_all()
+        .with_context(|| format!("cannot fsync {}", path.display()))?;
+    Ok(())
+}
+
+pub fn backup_usage(root: &Path) -> (u64, usize) {
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    let Ok(entries) = fs::read_dir(root) else {
+        return (bytes, count);
+    };
+    for entry in entries.flatten() {
+        let path: PathBuf = entry.path();
+        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            count += 1;
+            bytes += directory_size(&path);
+        }
+    }
+    (bytes, count)
+}
+
+pub fn directory_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(entries) = fs::read_dir(path) else {
+        return total;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.metadata() {
+            Ok(metadata) if metadata.is_dir() => total += directory_size(&path),
+            Ok(metadata) => total += metadata.len(),
+            Err(_) => {}
+        }
+    }
+    total
+}
+
+pub fn file_size(path: &Path) -> u64 {
+    fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +626,52 @@ mod tests {
         snapshot.closed_active_seconds = 500;
         assert_eq!(snapshot.total_active(1_100, false), 700);
         assert_eq!(snapshot.total_active(1_100, true), 500);
+    }
+
+    #[test]
+    fn database_snapshot_round_trip_and_refuses_overwrite() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("live.db");
+        {
+            let mut db = Database::open_write(&db_path, None).unwrap();
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+            let (start, _) = timeutil::day_bounds(date);
+            let session = crate::sessions::Session::new(
+                "Code",
+                "2026-11-21".to_owned(),
+                start + 10,
+                start + 70,
+            )
+            .unwrap();
+            db.commit_batch(&[], &[session], start + 70).unwrap();
+        }
+        let to = dir.path().join("snapshot");
+        let manifest = create_database_snapshot(&db_path, &to, false).unwrap();
+        assert_eq!(manifest.counts["sessions"], 1);
+        assert_eq!(manifest.fingerprint.session_seconds, 60);
+        assert_eq!(manifest.quick_check, "ok");
+        assert_eq!(
+            manifest.sha256,
+            crate::sha256::file_digest(&to.join("screen-time.db")).unwrap()
+        );
+        assert!(verify_database_snapshot(&to).is_ok());
+        assert!(create_database_snapshot(&db_path, &to, false).is_err());
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&to).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+        let mode = std::fs::metadata(to.join("manifest.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        let mode = std::fs::metadata(to.join("screen-time.db"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
