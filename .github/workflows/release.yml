@@ -25,8 +25,10 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Evaluation charts
+        run: python3 scripts/render-evaluation-charts.py --check
       - name: Shell scripts
-        run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh
+        run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/benchmark-linux-sandbox.sh
 
   build:
     strategy:

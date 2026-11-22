@@ -7,7 +7,7 @@
 
 ## 2. Experiments and comparisons
 
-- [Evaluation](EVALUATION.md) — runtime measurements, benchmarks, and Linux app comparisons.
+- [Evaluation](EVALUATION.md) — visual comparison, benchmarks, and Linux app comparisons.
 - [Resource benchmark](ROFI_RESOURCE_BENCHMARK.md) — raw comparison and reproduction.
 - [Final report](FINAL_REPORT.md) — milestone evidence and measurements.
 - [Storage research](SCREEN_TIME_STORAGE_ARCHITECTURE.md) — storage and write path.
@@ -22,8 +22,9 @@
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
-shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh
+shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/benchmark-linux-sandbox.sh
 nix build .#
+python3 scripts/render-evaluation-charts.py --check
 ```
 
 The test suite includes unit tests for schema migration, session merge, bursts,
@@ -33,3 +34,5 @@ golden main/detail screens at 1280x800 and 1920x1080 with section markers; and
 a daemon smoke test with a fake Hyprland socket and SIGTERM shutdown. Theme
 integration tests cover Matugen-over-static, corrupt-palette fallback, config
 overrides, generated Rofi themes, and live palette changes on the next render.
+Charts under `docs/charts/` are generated from `docs/benchmarks/*.json` by
+`scripts/render-evaluation-charts.py`.
