@@ -1,10 +1,13 @@
+use std::fs::{File, OpenOptions};
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Local, NaiveDate};
 
 use crate::capture::{self, Event};
@@ -21,9 +24,42 @@ const BATCH_INTERVAL_SECONDS: i64 = 60;
 const BATCH_EVENT_LIMIT: usize = 100;
 const HEARTBEAT_SECONDS: i64 = 60;
 
+/// Held for the whole daemon run; flock releases automatically on exit or
+/// crash, so no stale-lock cleanup is needed.
+#[derive(Debug)]
+struct DaemonLock {
+    _file: File,
+}
+
+fn acquire_daemon_lock(paths: &Paths) -> Result<DaemonLock> {
+    let path = paths.state_dir.join("daemon.lock");
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
+    // SAFETY: the File keeps a valid descriptor alive in the guard.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            bail!(
+                "another daemon is already running (lock {}); stop the systemd service or the other process first",
+                path.display()
+            );
+        }
+        return Err(error).with_context(|| format!("cannot lock {}", path.display()));
+    }
+    Ok(DaemonLock { _file: file })
+}
+
 pub fn run() -> Result<()> {
     let paths = Paths::resolve()?;
     paths.ensure()?;
+    let _daemon_lock = acquire_daemon_lock(&paths)?;
     let mut db = Database::open_write(&paths.db_path, Some(&paths.migration_backups_dir))?;
     let boot_id = paths::boot_id();
     let now = timeutil::now();
@@ -848,5 +884,44 @@ mod tests {
             )
             .unwrap();
         assert_eq!(remaining, 0);
+    }
+    fn test_paths(dir: &tempfile::TempDir) -> Paths {
+        let paths = Paths {
+            state_dir: dir.path().to_path_buf(),
+            db_path: dir.path().join("screen-time.db"),
+            runtime_dir: dir.path().to_path_buf(),
+            live_path: dir.path().join("live.json"),
+            ui_state_path: dir.path().join("ui.json"),
+            backups_dir: dir.path().join("backups"),
+            migration_backups_dir: dir.path().join("migration-backups"),
+        };
+        paths.ensure().unwrap();
+        paths
+    }
+
+    #[test]
+    fn daemon_lock_is_exclusive_until_the_guard_drops() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let paths = test_paths(&dir);
+        let first = acquire_daemon_lock(&paths).unwrap();
+        let mode = fs::metadata(paths.state_dir.join("daemon.lock"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+
+        let error = acquire_daemon_lock(&paths).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("another daemon is already running"),
+            "{error:#}"
+        );
+
+        drop(first);
+        acquire_daemon_lock(&paths).expect("lock is released when the guard drops");
     }
 }
