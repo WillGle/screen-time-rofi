@@ -70,3 +70,29 @@ fn page_down_and_up_stay_within_range() {
         "extra page-up is clamped to the first page"
     );
 }
+
+#[test]
+fn next_page_on_empty_list_keeps_page_zero() {
+    let fixture = Fixture::empty();
+    fixture.render_env(&["render", "--format", "rofi"], &[("ROFI_RETV", "0")]);
+    let output = fixture.render_env(&["render", "--format", "rofi"], &[("ROFI_RETV", "21")]);
+    assert!(output.contains("No activity recorded today"), "{output}");
+    assert_eq!(list_lines(&output), 8);
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture.paths.ui_state_path).unwrap()).unwrap();
+    assert_eq!(state["page"], 0);
+}
+
+#[test]
+fn rofi_next_day_from_today_stays_on_today() {
+    let fixture = Fixture::new();
+    let output = fixture.render_env(&["render", "--format", "rofi"], &[("ROFI_RETV", "11")]);
+    assert!(
+        output.contains("Today · Saturday, 21 November 2026"),
+        "{output}"
+    );
+    assert!(!output.contains("22 November"), "{output}");
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture.paths.ui_state_path).unwrap()).unwrap();
+    assert_eq!(state["date"], "2026-11-21");
+}

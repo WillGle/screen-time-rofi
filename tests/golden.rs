@@ -1,6 +1,7 @@
 mod common;
 
 use common::{Fixture, assert_or_update_golden, init_tz};
+use screen_time::sessions::Session;
 use screen_time::snapshot;
 use screen_time::timeutil;
 
@@ -306,6 +307,109 @@ fn static_env_font_and_colors_are_used_when_matugen_is_missing() {
     let theme = fixture.render(&["render", "--format", "rofi-theme"]);
     assert!(theme.contains("font: \"Static Mono 13\""), "{theme}");
     assert!(theme.contains("background-color: #111111"), "{theme}");
+}
+
+#[test]
+fn main_empty_day_renders_intentional_zero_state() {
+    init_tz();
+    let fixture = Fixture::empty();
+    let actual = fixture.render(&["render", "--format", "rofi"]);
+    assert_or_update_golden("main_empty_day.txt", &actual);
+    for line in actual.lines() {
+        assert!(
+            line.chars().count() <= 96,
+            "line exceeds 96 columns: {line:?}"
+        );
+    }
+    assert!(actual.contains("DAY ACTIVITY"), "{actual}");
+    assert!(actual.contains("APP TIMELINE"), "{actual}");
+    assert!(actual.contains("No activity recorded today"), "{actual}");
+    assert!(actual.contains("0m"), "{actual}");
+}
+
+#[test]
+fn main_no_data_day_renders_headers_without_rows() {
+    init_tz();
+    let fixture = Fixture::new();
+    let actual = fixture.render(&["render", "--format", "rofi", "--date", "2026-01-01"]);
+    assert_or_update_golden("main_no_data_day.txt", &actual);
+    for line in actual.lines() {
+        assert!(
+            line.chars().count() <= 96,
+            "line exceeds 96 columns: {line:?}"
+        );
+    }
+    assert!(actual.contains("Thursday, 1 January 2026"), "{actual}");
+    assert!(actual.contains("DAY ACTIVITY"), "{actual}");
+    assert!(actual.contains("APP TIMELINE"), "{actual}");
+    assert!(actual.contains("No activity recorded today"), "{actual}");
+}
+
+#[test]
+fn main_degenerate_rows_truncate_long_utf8_names() {
+    init_tz();
+    let fixture = Fixture::empty();
+    let at = |value: &str| timeutil::parse_rfc3339(value).unwrap().timestamp();
+    let long_name = "日本語🎨長いアプリケーション名 with ASCII tail 0123456789";
+    assert!(long_name.chars().count() > 40);
+    fixture.add_sessions(&[
+        Session::new(
+            "Code",
+            "2026-11-21".to_owned(),
+            at("2026-11-21T12:00:00+00:00"),
+            at("2026-11-21T12:00:01+00:00"),
+        )
+        .unwrap(),
+        Session::new(
+            long_name,
+            "2026-11-21".to_owned(),
+            at("2026-11-21T12:01:00+00:00"),
+            at("2026-11-21T12:01:01+00:00"),
+        )
+        .unwrap(),
+    ]);
+    let actual = fixture.render(&["render", "--format", "rofi"]);
+    assert_or_update_golden("main_degenerate_rows.txt", &actual);
+    assert!(std::str::from_utf8(actual.as_bytes()).is_ok());
+    assert!(actual.contains("0m"), "{actual}");
+    assert!(actual.contains("50%"), "{actual}");
+    assert!(!actual.contains("NaN"), "{actual}");
+    let truncated = actual
+        .lines()
+        .find(|line| line.contains('…'))
+        .expect("long name is truncated with an ellipsis");
+    assert!(
+        truncated.chars().count() <= 96,
+        "truncated row exceeds the column budget: {truncated:?}"
+    );
+}
+
+#[test]
+fn detail_unknown_app_shows_an_empty_detail() {
+    init_tz();
+    let fixture = Fixture::new();
+    let actual = fixture.render(&["render", "--format", "rofi", "--app", "NoSuchApp"]);
+    assert_or_update_golden("detail_unknown_app.txt", &actual);
+    assert!(actual.contains("NoSuchApp"), "{actual}");
+    assert!(actual.contains("No sessions recorded"), "{actual}");
+}
+
+#[test]
+fn future_date_plain_render_fails_fast() {
+    init_tz();
+    let fixture = Fixture::new();
+    for args in [
+        vec!["render", "--date", "2026-11-22"],
+        vec!["render", "--date", "2026-11-22", "--app", "Code"],
+    ] {
+        let output = fixture.render_env_output(&args, &[]);
+        assert!(!output.status.success(), "future date must fail: {args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("future dates are not available"),
+            "unexpected stderr for {args:?}: {stderr}"
+        );
+    }
 }
 
 #[test]

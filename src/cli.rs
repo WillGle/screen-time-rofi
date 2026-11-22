@@ -293,8 +293,12 @@ fn run_render(args: RenderArgs) -> Result<()> {
     }
 
     let requested_date = match &args.date {
-        Some(date) => crate::timeutil::parse_date(date)
-            .with_context(|| format!("invalid --date value {date:?}"))?,
+        Some(date) => {
+            let date = crate::timeutil::parse_date(date)
+                .with_context(|| format!("invalid --date value {date:?}"))?;
+            crate::timeutil::validate_past_or_today(date, now)?;
+            date
+        }
         None => now.date_naive(),
     };
     let output = match &args.app {

@@ -1,0 +1,15 @@
+ ● NoSuchApp   0m   Unknown · 0% of active time · Sat 21 Nov · Today
+ 0 sessions    median 0m    0 switches/h
+ sessions through 17:14 · may lag one batch
+
+ ▌ APP ACTIVITY                                                                                 
+                        00  02  04  06  08  10  12  14  16  18  20  22  24
+ No sessions recorded
+
+ ▌ BURSTS                                                                                       
+ Sessions will appear after the first batch.
+
+ ▌ 7 DAY                                                                                        
+ No recorded history
+
+ ←/→ day   Backspace back   Esc close

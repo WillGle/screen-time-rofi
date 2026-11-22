@@ -22,7 +22,9 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    pub fn new() -> Self {
+    /// Same temp paths as [`Fixture::new`], but without a database or live
+    /// snapshot. Used to pin empty and not-yet-started states.
+    pub fn empty() -> Self {
         init_tz();
         let dir = tempfile::tempdir().unwrap();
         let state_dir = dir.path().join("state").join("screen-time");
@@ -37,9 +39,21 @@ impl Fixture {
             migration_backups_dir: state_dir.join("backups").join("migrations"),
         };
         paths.ensure().unwrap();
-        build_database(&paths);
-        write_snapshot(&paths);
         Self { dir, paths }
+    }
+
+    pub fn new() -> Self {
+        let fixture = Self::empty();
+        build_database(&fixture.paths);
+        write_snapshot(&fixture.paths);
+        fixture
+    }
+
+    /// Add closed sessions to an otherwise empty fixture. This creates the
+    /// database on first use.
+    pub fn add_sessions(&self, sessions: &[Session]) {
+        let mut db = Database::open_write(&self.paths.db_path, None).unwrap();
+        db.commit_batch(&[], sessions, 0).unwrap();
     }
 
     pub fn render(&self, args: &[&str]) -> String {
@@ -57,6 +71,20 @@ impl Fixture {
     }
 
     pub fn render_env(&self, args: &[&str], extra_env: &[(&str, &str)]) -> String {
+        let output = self.render_env_output(args, extra_env);
+        assert!(
+            output.status.success(),
+            "screen-time failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("render output is not UTF-8")
+    }
+
+    pub fn render_env_output(
+        &self,
+        args: &[&str],
+        extra_env: &[(&str, &str)],
+    ) -> std::process::Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_screen-time"));
         let config_home = self.dir.path().join("config");
         std::fs::create_dir_all(&config_home).unwrap();
@@ -79,13 +107,7 @@ impl Fixture {
         for (key, value) in extra_env {
             command.env(key, value);
         }
-        let output = command.output().expect("cannot run screen-time");
-        assert!(
-            output.status.success(),
-            "screen-time failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).expect("render output is not UTF-8")
+        command.output().expect("cannot run screen-time")
     }
 }
 
