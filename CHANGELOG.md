@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Keep five app rows per timeline page and compact the Rofi main-view rows so
+  the fifth app is not clipped by the popup height.
+
 ## 0.4.3
 
 - Reduce the app-timeline page to four rows so the popup never clips the

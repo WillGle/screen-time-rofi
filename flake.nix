@@ -28,7 +28,7 @@
           lib = pkgs.lib;
           screen-time = pkgs.rustPlatform.buildRustPackage {
             pname = "screen-time";
-            version = "0.4.3";
+            version = "0.4.4";
 
             src = lib.cleanSourceWith {
               src = lib.cleanSource ./.;

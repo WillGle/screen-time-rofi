@@ -13,7 +13,7 @@ pub const TOP_APPS: usize = 10;
 /// The popup shows at most this many app rows at once. Larger lists are
 /// paginated so the window does not grow with every tracked app and the last
 /// row is not clipped by the popup height.
-pub const APP_PAGE_SIZE: usize = 4;
+pub const APP_PAGE_SIZE: usize = 5;
 
 #[derive(Debug, Clone)]
 pub struct DayView {

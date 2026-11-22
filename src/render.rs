@@ -189,16 +189,20 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
             "\0message\x1f <span size=\"{}pt\">{title}</span>    {total_line}    <span size=\"{}pt\">{date}</span>\n",theme.font_size,theme.font_size
         ));
         let extra = usize::from(show_other || list_slots == 0);
-        out.push_str(&format!("\0active\x1f2-5,7-{}\n", 7 + list_slots + extra));
+        // The Rofi main view omits the three 4pt spacer rows used by plain
+        // output. Six fixed rows + app rows + one footer row fit five apps.
+        out.push_str(&format!("\0active\x1f1-{}\n", 5 + list_slots + extra));
         out.push_str(&format!(
             "\0theme\x1flistview {{ lines: {}; }}\n",
-            10 + list_slots + extra
+            7 + list_slots + extra
         ));
         emit(&mut out, &summary, RowMeta::NonSelectable, mode);
     } else {
         out.push_str(&format!(" {title}\n{total_line}\n {date}\n{summary}\n"));
     }
-    emit_spacer(&mut out, mode);
+    if mode != OutputMode::Rofi {
+        emit_spacer(&mut out, mode);
+    }
 
     emit(
         &mut out,
@@ -235,7 +239,9 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
         RowMeta::NonSelectable,
         mode,
     );
-    emit_spacer(&mut out, mode);
+    if mode != OutputMode::Rofi {
+        emit_spacer(&mut out, mode);
+    }
 
     let app_count = view.rows.len() + view.other.as_ref().map_or(0, |row| row.count);
     let timeline_meta = if paginated {
@@ -299,7 +305,9 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
         );
     }
 
-    emit_spacer(&mut out, mode);
+    if mode != OutputMode::Rofi {
+        emit_spacer(&mut out, mode);
+    }
     emit(
         &mut out,
         &format!(
@@ -1079,21 +1087,21 @@ mod tests {
     }
 
     #[test]
-    fn app_timeline_is_paginated_four_rows_at_a_time() {
+    fn app_timeline_is_paginated_five_rows_at_a_time() {
         let theme = Theme::resolve(&Config::default());
         let mut view = sample_view_with_rows(8);
 
         view.page = 0;
         let first = render_main_with_theme(&view, OutputMode::Rofi, &theme);
-        for index in 1..=4 {
+        for index in 1..=5 {
             assert!(
                 first.contains(&format!("App{index}")),
                 "page 1 missing App{index}"
             );
         }
-        assert!(!first.contains("App5"));
-        assert!(first.contains("apps 1-4 of 8"));
-        assert_eq!(list_lines(&first), 14);
+        assert!(!first.contains("App6"));
+        assert!(first.contains("apps 1-5 of 8"));
+        assert_eq!(list_lines(&first), 12);
 
         view.page = 1;
         let second = render_main_with_theme(&view, OutputMode::Rofi, &theme);
@@ -1102,14 +1110,14 @@ mod tests {
             1,
             "page 2 must not repeat the first row"
         );
-        for index in 5..=8 {
+        for index in 6..=8 {
             assert!(
                 second.contains(&format!("App{index}")),
                 "page 2 missing App{index}"
             );
         }
-        assert!(second.contains("apps 5-8 of 8"));
-        assert_eq!(list_lines(&second), 14, "page height stays stable");
+        assert!(second.contains("apps 6-8 of 8"));
+        assert_eq!(list_lines(&second), 12, "page height stays stable");
     }
 
     #[test]
@@ -1117,7 +1125,7 @@ mod tests {
         let theme = Theme::resolve(&Config::default());
         let view = sample_view_with_rows(3);
         let rofi = render_main_with_theme(&view, OutputMode::Rofi, &theme);
-        assert_eq!(list_lines(&rofi), 13);
+        assert_eq!(list_lines(&rofi), 10);
         assert!(!rofi.contains("Alt+↓/↑ page"));
 
         let plain = render_main_with_theme(&sample_view_with_rows(8), OutputMode::Plain, &theme);

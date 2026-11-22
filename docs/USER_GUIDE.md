@@ -207,7 +207,7 @@ Keys:
 | `Alt+1` / `Alt+2` / `Alt+3` | Switch to Nord / Solarized Light / Gruvbox Dark |
 | `Alt+4` | Return to the theme from your config |
 
-The app timeline shows at most four apps at a time. Use `Alt+↓` / `Alt+↑` to
+The app timeline shows at most five apps at a time. Use `Alt+↓` / `Alt+↑` to
 move to the next or previous page; the popup height stays fixed so returning
 from an app detail does not crop the main view. App names from legacy WM_CLASS
 values are normalized on read and merged by a one-time migration.
