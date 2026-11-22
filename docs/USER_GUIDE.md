@@ -198,6 +198,7 @@ Keys:
 |---|---|
 | `←` / `→` | Previous / next day (clamped at today) |
 | `↑` / `↓` | Select an app row |
+| `Alt+↓` / `Alt+↑` | Next / previous app-timeline page |
 | `Enter` | Open the selected app detail |
 | `Esc` | Close the popup |
 | `Backspace` | Back from detail |
@@ -205,6 +206,11 @@ Keys:
 | `R` | Re-read the live snapshot and SQLite |
 | `Alt+1` / `Alt+2` / `Alt+3` | Switch to Nord / Solarized Light / Gruvbox Dark |
 | `Alt+4` | Return to the theme from your config |
+
+The app timeline shows at most five apps at a time. Use `Alt+↓` / `Alt+↑` to
+move to the next or previous page; the popup height stays fixed so returning
+from an app detail does not crop the main view. App names from legacy WM_CLASS
+values are normalized on read and merged by a one-time migration.
 
 The footer lists the shortcuts. Switching themes reopens the popup on the
 same day and view. The shortcut selection is saved as `theme-choice` in

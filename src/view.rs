@@ -10,6 +10,9 @@ use crate::snapshot;
 use crate::timeutil::{self, SLOT_COUNT};
 
 pub const TOP_APPS: usize = 10;
+/// The popup shows at most this many app rows at once. Larger lists are
+/// paginated so the window does not grow with every tracked app.
+pub const APP_PAGE_SIZE: usize = 5;
 
 #[derive(Debug, Clone)]
 pub struct DayView {
@@ -30,6 +33,8 @@ pub struct DayView {
     pub power_slots: [bool; SLOT_COUNT],
     pub rows: Vec<AppRow>,
     pub other: Option<OtherRow>,
+    /// Zero-based app timeline page used by the Rofi view.
+    pub page: usize,
     pub last_commit_at: Option<DateTime<Local>>,
 }
 
@@ -260,6 +265,7 @@ pub fn load_main(paths: &Paths, date: NaiveDate, now: DateTime<Local>) -> Result
         power_slots: slots_active(&power_slots_seconds),
         rows,
         other,
+        page: 0,
         last_commit_at,
     })
 }

@@ -2,7 +2,7 @@ use crate::config::{Config, LayoutMode};
 use crate::sessions::{display_label, display_name};
 use crate::theme::Theme;
 use crate::timeutil::{self, SLOT_COUNT};
-use crate::view::{AppRow, DayView, DetailView, OtherRow, TOP_APPS};
+use crate::view::{APP_PAGE_SIZE, AppRow, DayView, DetailView, OtherRow, TOP_APPS};
 
 const NAME_WIDTH: usize = 16;
 const PREFIX_WIDTH: usize = 24;
@@ -104,6 +104,30 @@ pub fn render_main(view: &DayView, mode: OutputMode) -> String {
 pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &Theme) -> String {
     let layout = Layout::from_theme(theme);
     let width = layout.screen_width();
+    let page_count = view.rows.len().div_ceil(APP_PAGE_SIZE).max(1);
+    let paginated = mode == OutputMode::Rofi && page_count > 1;
+    let page = if mode == OutputMode::Rofi {
+        view.page.min(page_count - 1)
+    } else {
+        0
+    };
+    let page_size = if mode == OutputMode::Rofi {
+        APP_PAGE_SIZE
+    } else {
+        layout.top_apps()
+    };
+    let page_start = page * page_size;
+    let page_end = (page_start + page_size).min(view.rows.len());
+    let page_rows = &view.rows[page_start..page_end];
+    // Keep the main popup at a stable five-row height while paginated, even
+    // when the last page has fewer apps. This prevents a detail view from
+    // leaving the main view cropped after returning.
+    let list_slots = if paginated {
+        APP_PAGE_SIZE
+    } else {
+        page_rows.len()
+    };
+    let show_other = view.other.is_some() && page_end == view.rows.len();
     let mut out = String::new();
     if mode == OutputMode::Rofi {
         out.push_str("\0use-hot-keys\x1ftrue\n");
@@ -164,12 +188,11 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
         out.push_str(&format!(
             "\0message\x1f <span size=\"{}pt\">{title}</span>    {total_line}    <span size=\"{}pt\">{date}</span>\n",theme.font_size,theme.font_size
         ));
-        let apps = view.rows.len().min(layout.top_apps());
-        let extra = usize::from(view.other.is_some() || view.rows.len() > apps || apps == 0);
-        out.push_str(&format!("\0active\x1f2-5,7-{}\n", 7 + apps + extra));
+        let extra = usize::from(show_other || list_slots == 0);
+        out.push_str(&format!("\0active\x1f2-5,7-{}\n", 7 + list_slots + extra));
         out.push_str(&format!(
             "\0theme\x1flistview {{ lines: {}; }}\n",
-            10 + apps + extra
+            10 + list_slots + extra
         ));
         emit(&mut out, &summary, RowMeta::NonSelectable, mode);
     } else {
@@ -215,12 +238,22 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
     emit_spacer(&mut out, mode);
 
     let app_count = view.rows.len() + view.other.as_ref().map_or(0, |row| row.count);
-    let timeline_meta = format!(
-        "top {} of {} apps · {}",
-        view.rows.len().min(layout.top_apps()),
-        app_count,
-        total
-    );
+    let timeline_meta = if paginated {
+        format!(
+            "apps {}-{} of {} · {}",
+            page_start + 1,
+            page_end.max(page_start + 1),
+            view.rows.len(),
+            total
+        )
+    } else {
+        format!(
+            "top {} of {} apps · {}",
+            view.rows.len().min(layout.top_apps()),
+            app_count,
+            total
+        )
+    };
     emit(
         &mut out,
         &section_header("APP TIMELINE", &timeline_meta, width, theme, mode),
@@ -228,7 +261,8 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
         mode,
     );
 
-    for (index, row) in view.rows.iter().take(layout.top_apps()).enumerate() {
+    for (offset, row) in page_rows.iter().enumerate() {
+        let index = page_start + offset;
         emit(
             &mut out,
             &panel_line(
@@ -241,18 +275,20 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
             mode,
         );
     }
-    if let Some(other) = &other {
-        emit(
-            &mut out,
-            &panel_line(
-                &other_line(other, view.active_seconds, theme, &layout, mode),
-                width,
-                theme,
+    if show_other {
+        if let Some(other) = &other {
+            emit(
+                &mut out,
+                &panel_line(
+                    &other_line(other, view.active_seconds, theme, &layout, mode),
+                    width,
+                    theme,
+                    mode,
+                ),
+                RowMeta::NonSelectable,
                 mode,
-            ),
-            RowMeta::NonSelectable,
-            mode,
-        );
+            );
+        }
     }
     if view.rows.is_empty() && view.active_seconds == 0 {
         emit(
@@ -269,7 +305,9 @@ pub(crate) fn render_main_with_theme(view: &DayView, mode: OutputMode, theme: &T
         &format!(
             " {}",
             role_span(
-                if mode == OutputMode::Rofi {
+                if mode == OutputMode::Rofi && paginated {
+                    "←/→ day   Alt+↓/↑ page   T today   R refresh   ↵ detail   esc close   Alt+1–4 theme"
+                } else if mode == OutputMode::Rofi {
                     "←/→ day   T today   R refresh   ↵ detail   esc close   Alt+1–4 theme"
                 } else {
                     "←/→ day   T today   R refresh   ↵ detail   esc close"
@@ -351,6 +389,8 @@ impl AppCategory {
             "dialog",
             "zenity",
             "settings",
+            "blueman",
+            "bluetooth",
             "system monitor",
             "task manager",
         ]) {
@@ -1008,16 +1048,98 @@ mod tests {
                 slots,
             }],
             other: None,
+            page: 0,
             last_commit_at: None,
+        }
+    }
+
+    fn sample_view_with_rows(count: usize) -> DayView {
+        let mut view = sample_view();
+        view.rows = (1..=count)
+            .map(|index| AppRow {
+                name: format!("App{index}"),
+                seconds: (count + 1 - index) as i64 * 60,
+                sessions: 1,
+                slots: [false; SLOT_COUNT],
+            })
+            .collect();
+        view.other = None;
+        view
+    }
+
+    fn list_lines(output: &str) -> usize {
+        output
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("\0theme\x1flistview { lines: ")
+                    .and_then(|value| value.strip_suffix("; }"))
+                    .and_then(|value| value.parse().ok())
+            })
+            .expect("missing listview lines metadata")
+    }
+
+    #[test]
+    fn app_timeline_is_paginated_five_rows_at_a_time() {
+        let theme = Theme::resolve(&Config::default());
+        let mut view = sample_view_with_rows(8);
+
+        view.page = 0;
+        let first = render_main_with_theme(&view, OutputMode::Rofi, &theme);
+        for index in 1..=5 {
+            assert!(
+                first.contains(&format!("App{index}")),
+                "page 1 missing App{index}"
+            );
+        }
+        assert!(!first.contains("App6"));
+        assert!(first.contains("apps 1-5 of 8"));
+        assert_eq!(list_lines(&first), 15);
+
+        view.page = 1;
+        let second = render_main_with_theme(&view, OutputMode::Rofi, &theme);
+        assert_eq!(
+            second.matches("App1").count(),
+            1,
+            "page 2 must not repeat the first row"
+        );
+        for index in 6..=8 {
+            assert!(
+                second.contains(&format!("App{index}")),
+                "page 2 missing App{index}"
+            );
+        }
+        assert!(second.contains("apps 6-8 of 8"));
+        assert_eq!(list_lines(&second), 15, "page height stays stable");
+    }
+
+    #[test]
+    fn single_page_uses_exact_height_and_plain_output_lists_all_rows() {
+        let theme = Theme::resolve(&Config::default());
+        let view = sample_view_with_rows(3);
+        let rofi = render_main_with_theme(&view, OutputMode::Rofi, &theme);
+        assert_eq!(list_lines(&rofi), 13);
+        assert!(!rofi.contains("Alt+↓/↑ page"));
+
+        let plain = render_main_with_theme(&sample_view_with_rows(8), OutputMode::Plain, &theme);
+        for index in 1..=8 {
+            assert!(
+                plain.contains(&format!("App{index}")),
+                "plain missing App{index}"
+            );
         }
     }
 
     #[test]
     fn main_lines_fit_the_default_1280_layout() {
         let output = render_main(&sample_view(), OutputMode::Plain);
+        let max_width = if cfg!(feature = "session-count") {
+            101
+        } else {
+            96
+        };
         for line in output.lines() {
             assert!(
-                line.chars().count() <= 96,
+                line.chars().count() <= max_width,
                 "line is too wide ({}): {line}",
                 line.chars().count()
             );
@@ -1095,8 +1217,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "session-count"))]
     fn session_count_is_off_by_default() {
         let output = render_main(&sample_view(), OutputMode::Plain);
         assert!(!output.contains("×18"));
+    }
+
+    #[test]
+    #[cfg(feature = "session-count")]
+    fn session_count_feature_is_rendered() {
+        let output = render_main(&sample_view(), OutputMode::Plain);
+        assert!(output.contains("×18"));
     }
 }

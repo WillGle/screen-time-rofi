@@ -18,6 +18,8 @@ use crate::view;
 pub struct UiState {
     pub date: Option<String>,
     pub app: Option<String>,
+    #[serde(default)]
+    pub page: usize,
 }
 
 pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Result<String> {
@@ -32,6 +34,7 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
         state = UiState {
             date: None,
             app: None,
+            page: 0,
         };
         if let Some(date) = &args.date {
             state.date = Some(date.clone());
@@ -54,14 +57,17 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             }
             10 => {
                 state.app = None;
+                state.page = 0;
                 state.date = Some(shift_date(&state, today, -1));
             }
             11 => {
                 state.app = None;
+                state.page = 0;
                 state.date = Some(shift_date(&state, today, 1));
             }
             12 => {
                 state.app = None;
+                state.page = 0;
                 state.date = None;
             }
             13 => {
@@ -72,6 +78,7 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             }
             15 => {
                 state.app = None;
+                state.page = 0;
                 state.date = None;
             }
             16 => {
@@ -81,6 +88,8 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             18 => write_theme_choice(paths, Some("solarized"))?,
             19 => write_theme_choice(paths, Some("gruvbox"))?,
             20 => write_theme_choice(paths, None)?,
+            21 => state.page = state.page.saturating_add(1),
+            22 => state.page = state.page.saturating_sub(1),
             _ => {}
         }
         write_state(paths, &state)?;
@@ -107,7 +116,13 @@ pub fn handle_rofi(paths: &Paths, args: &RenderArgs, now: DateTime<Local>) -> Re
             render::render_detail_with_theme(&detail, render::OutputMode::Rofi, &theme)
         }
         _ => {
-            let day = view::load_main(paths, date, now)?;
+            let mut day = view::load_main(paths, date, now)?;
+            let page_count = day.rows.len().div_ceil(view::APP_PAGE_SIZE).max(1);
+            if state.page >= page_count {
+                state.page = page_count - 1;
+                write_state(paths, &state)?;
+            }
+            day.page = state.page;
             render::render_main_with_theme(&day, render::OutputMode::Rofi, &theme)
         }
     };
@@ -228,6 +243,7 @@ mod tests {
         let mut state = UiState {
             date: Some("2026-11-21".to_owned()),
             app: None,
+            page: 0,
         };
         assert_eq!(shift_date(&state, today, 1), "2026-11-21");
         assert_eq!(shift_date(&state, today, -1), "2026-11-20");

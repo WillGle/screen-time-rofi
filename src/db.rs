@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -729,11 +730,18 @@ fn create_migration_backup(conn: &Connection, backup_dir: &Path, version: i64) -
             backup_dir.display()
         )
     })?;
+    fs::set_permissions(backup_dir, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("cannot set permissions on {}", backup_dir.display()))?;
+    if let Some(parent) = backup_dir.parent() {
+        let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+    }
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let path = backup_dir.join(format!("pre-v{version}-{stamp}.db"));
     let path_string = path.to_string_lossy().to_string();
     conn.execute("VACUUM INTO ?1", params![path_string])
         .with_context(|| format!("cannot create pre-migration backup {}", path.display()))?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("cannot set permissions on {}", path.display()))?;
     Ok(path)
 }
 

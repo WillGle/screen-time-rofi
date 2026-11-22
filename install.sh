@@ -1686,7 +1686,25 @@ do_install() {
     if [ "$NO_SERVICE" -eq 0 ]; then
         if [ "$WAS_ACTIVE" -eq 1 ] || [ "$FIRST_INSTALL" -eq 1 ]; then
             systemctl --user enable --now screen-time.service
-            sleep 1
+            local active=0
+            for _ in 1 2 3 4 5; do
+                if [ "$(systemctl --user is-active screen-time.service 2>/dev/null || true)" = "active" ]; then
+                    active=1
+                    break
+                fi
+                sleep 1
+            done
+            if [ "$active" -ne 1 ]; then
+                ERROR_PHASE="service-start"
+                die "the new service did not become active"
+            fi
+            # The daemon may migrate app keys on first start. Verify the
+            # post-migration database and runtime health while the failure
+            # trap is still armed.
+            if ! SCREEN_TIME_STATE_DIR="$STATE_DIR" "$BIN" doctor --json --no-runtime >/dev/null; then
+                ERROR_PHASE="post-start-doctor"
+                die "doctor failed after starting the new service"
+            fi
         fi
     fi
 

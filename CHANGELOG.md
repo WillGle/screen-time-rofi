@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+- Normalize legacy system WM_CLASS names to readable labels (for example
+  `.blueman-manager-wrapped` → `Blueman Manager`, reverse-DNS IDs → their app
+  name), and merge legacy keys in a schema-v2 migration.
+- Paginate the app timeline at five rows per view. `Alt+Down` / `Alt+Up` move
+  between pages; the main popup keeps a stable height when returning from an
+  app detail.
+- Expand CI with the `session-count` feature, Nix flake checks, and actionlint.
+
 ## 0.4.1
 
 - Install a commented `config.example.toml` template at

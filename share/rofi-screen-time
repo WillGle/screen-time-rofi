@@ -121,6 +121,8 @@ run_popup() {
         -kb-custom-9 "Alt+2" \
         -kb-custom-10 "Alt+3" \
         -kb-custom-11 "Alt+4" \
+        -kb-custom-12 "Alt+Down" \
+        -kb-custom-13 "Alt+Up" \
         "${theme_args[@]}"
 }
 

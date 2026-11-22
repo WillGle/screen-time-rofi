@@ -157,11 +157,28 @@ pub fn normalize_app(class: &str) -> Option<String> {
         return None;
     }
 
-    let mut name = trimmed
-        .strip_suffix("-url-handler")
-        .unwrap_or(trimmed)
-        .strip_suffix(".desktop")
-        .unwrap_or_else(|| trimmed.strip_suffix("-url-handler").unwrap_or(trimmed))
+    let mut name = trimmed.to_owned();
+    loop {
+        let before = name.clone();
+        for suffix in ["-url-handler", "-wrapped", ".desktop"] {
+            if let Some(stripped) = name.strip_suffix(suffix) {
+                name = stripped.to_owned();
+            }
+        }
+        name = name
+            .trim_end_matches(|character: char| {
+                character == '.' || character == '-' || character == '_'
+            })
+            .trim()
+            .to_owned();
+        if name == before {
+            break;
+        }
+    }
+    name = name
+        .trim_start_matches(|character: char| {
+            character == '.' || character == '-' || character == '_'
+        })
         .trim()
         .to_owned();
     if name.is_empty() {
@@ -197,6 +214,17 @@ pub fn normalize_app(class: &str) -> Option<String> {
         "zathura" => Some("Zathura"),
         "cs2" => Some("CS2"),
         "zenity" => Some("System Dialog"),
+        "blueman-manager" | "blueman-applet" | "blueman-manager-wrapped" => Some("Blueman Manager"),
+        "gnome-control-center" | "systemsettings" | "systemsettings5" | "org.gnome.settings" => {
+            Some("Settings")
+        }
+        "org.gnome.calculator" | "gnome-calculator" => Some("Calculator"),
+        "org.gnome.console" | "kgx" => Some("Terminal"),
+        "org.gnome.texteditor" | "gnome-text-editor" => Some("Text Editor"),
+        "org.gnome.eog" | "eog" => Some("Image Viewer"),
+        "org.gnome.file-roller" | "file-roller" => Some("Archive Manager"),
+        "org.gnome.diskutility" | "gnome-disks" => Some("Disks"),
+        "org.gnome.systemmonitor" | "gnome-system-monitor" => Some("System Monitor"),
         "xdg-desktop-portal"
         | "xdg-desktop-portal-gtk"
         | "xdg-desktop-portal-gnome"
@@ -210,17 +238,40 @@ pub fn normalize_app(class: &str) -> Option<String> {
         return Some(canonical.to_owned());
     }
 
-    let collapsed = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    name = collapsed;
-    if name.chars().all(|character| !character.is_uppercase()) {
-        let mut chars = name.chars();
-        if let Some(first) = chars.next() {
-            let mut capitalized = first.to_uppercase().to_string();
-            capitalized.push_str(chars.as_str());
-            name = capitalized;
-        }
+    // Reverse-DNS IDs such as `org.gnome.Calculator` use the last component
+    // as the readable fallback.
+    if let Some(last) = name.rsplit('.').next() {
+        name = last.to_owned();
     }
-    if name.is_empty() { None } else { Some(name) }
+    let words: Vec<&str> = name
+        .split(|character: char| {
+            character == '-' || character == '_' || character == '.' || character.is_whitespace()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    let readable = words
+        .into_iter()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut capitalized = first.to_uppercase().to_string();
+                    capitalized.push_str(chars.as_str());
+                    capitalized
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if readable.is_empty() {
+        None
+    } else {
+        Some(readable)
+    }
 }
 
 /// User-facing label for stored app keys. Older databases contain WM_CLASS
@@ -322,6 +373,18 @@ mod tests {
         );
         assert_eq!(normalize_app("zenity").as_deref(), Some("System Dialog"));
         assert_eq!(normalize_app("cs2").as_deref(), Some("CS2"));
+        assert_eq!(
+            normalize_app(".blueman-manager-wrapped").as_deref(),
+            Some("Blueman Manager")
+        );
+        assert_eq!(
+            normalize_app("org.gnome.Calculator").as_deref(),
+            Some("Calculator")
+        );
+        assert_eq!(
+            normalize_app("my-helper_app").as_deref(),
+            Some("My Helper App")
+        );
         assert_eq!(normalize_app(""), None);
         assert_eq!(normalize_app("rofi"), None);
         assert_eq!(normalize_app("hyprlock"), None);
@@ -334,6 +397,7 @@ mod tests {
         assert_eq!(display_label("Zenity"), "System Dialog");
         assert_eq!(display_label("Cs2"), "CS2");
         assert_eq!(display_label("Foot"), "Foot");
+        assert_eq!(display_label(".blueman-manager-wrapped"), "Blueman Manager");
     }
 
     #[test]

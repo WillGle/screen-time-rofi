@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::Command;
 
 use common::{BOOT_ID, Fixture, NOW};
+use screen_time::migrations::CURRENT_VERSION;
 use serde_json::Value;
 
 fn run(fixture: &Fixture, args: &[&str]) -> std::process::Output {
@@ -51,7 +52,7 @@ fn doctor_json_has_a_stable_schema_and_no_runtime_mode() {
     assert_eq!(report["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["ok"], true);
     assert_eq!(report["mode"], "no-runtime");
-    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["schema_version"], CURRENT_VERSION);
     assert_eq!(report["quick_check"], "ok");
     assert_eq!(report["retention"]["enabled"], false);
     assert_eq!(report["retention"]["summary"], "disabled");
@@ -158,7 +159,7 @@ fn snapshot_command_writes_a_verifiable_manifest() {
     );
     let manifest = json(&output);
     assert_eq!(manifest["quick_check"], "ok");
-    assert_eq!(manifest["schema_version"], 1);
+    assert_eq!(manifest["schema_version"], CURRENT_VERSION);
     assert!(manifest["fingerprint"]["session_seconds"].as_i64().unwrap() > 0);
     assert_eq!(
         manifest["sha256"],

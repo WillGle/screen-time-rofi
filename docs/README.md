@@ -12,8 +12,10 @@
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
+cargo test --locked --features session-count --lib
 shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/sign-release.sh scripts/test-installer.sh scripts/restore-drill.sh scripts/benchmark-linux-sandbox.sh
 nix build .#
+nix flake check
 python3 scripts/render-evaluation-charts.py --check
 scripts/test-installer.sh
 ```
