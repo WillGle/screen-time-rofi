@@ -580,6 +580,28 @@ mod tests {
     }
 
     #[test]
+    fn idle_false_resync_unblocks_focus_tracking() {
+        let mut tracker = tracker();
+        let start = base();
+        tracker.idle = true;
+        assert!(!tracker.on_focus(Some("Code".to_owned()), start + 100));
+        assert!(tracker.open.is_none());
+        assert_eq!(tracker.last_focus.as_deref(), Some("Code"));
+        assert!(tracker.pending_sessions.is_empty());
+
+        assert!(tracker.on_idle(false, start + 200));
+        assert_eq!(tracker.open.as_ref().unwrap().app, "Code");
+        assert_eq!(tracker.open.as_ref().unwrap().start_ts, start + 200);
+
+        assert!(tracker.on_focus(Some("Firefox".to_owned()), start + 300));
+        assert_eq!(tracker.open.as_ref().unwrap().app, "Firefox");
+        assert_eq!(tracker.open.as_ref().unwrap().start_ts, start + 300);
+        assert_eq!(tracker.pending_sessions.len(), 1);
+        assert_eq!(tracker.pending_sessions[0].app, "Code");
+        assert_eq!(tracker.pending_sessions[0].seconds, 100);
+    }
+
+    #[test]
     fn merge_within_batch() {
         let mut tracker = tracker();
         tracker.record_closed_session(

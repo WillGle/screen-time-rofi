@@ -44,6 +44,12 @@ fn probe_inner() -> Result<bool> {
         .context("cannot read login1 IdleHint")
 }
 
+/// Publish the state observed on a new connection. Sending `false` matters:
+/// an idle-to-active transition while disconnected must reach the tracker.
+fn emit_current_idle(tx: &Sender<Event>, current: bool) {
+    let _ = tx.send(Event::Idle(current));
+}
+
 pub fn run_listener(tx: Sender<Event>, stop: Arc<AtomicBool>) {
     if std::env::var("SCREEN_TIME_DISABLE_IDLE").as_deref() == Ok("1") {
         return;
@@ -66,9 +72,7 @@ fn listen(tx: &Sender<Event>, stop: &Arc<AtomicBool>) -> Result<()> {
     let current: bool = proxy
         .get_property("IdleHint")
         .context("cannot read login1 IdleHint")?;
-    if current {
-        let _ = tx.send(Event::Idle(true));
-    }
+    emit_current_idle(tx, current);
     let changes = proxy.receive_property_changed::<bool>("IdleHint");
     for change in changes {
         if stop.load(Ordering::Relaxed) {
@@ -94,5 +98,14 @@ mod tests {
     fn probe_is_non_panicking() {
         let probe = probe();
         assert!(probe.available || probe.error.is_some());
+    }
+
+    #[test]
+    fn reconnect_resync_emits_both_idle_states() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        emit_current_idle(&tx, false);
+        emit_current_idle(&tx, true);
+        assert!(matches!(rx.recv().unwrap(), Event::Idle(false)));
+        assert!(matches!(rx.recv().unwrap(), Event::Idle(true)));
     }
 }
