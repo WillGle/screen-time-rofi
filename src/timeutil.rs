@@ -2,7 +2,8 @@ use std::env;
 
 use anyhow::{Context, Result, bail};
 use chrono::{
-    DateTime, Datelike, Duration, Local, NaiveDate, SecondsFormat, TimeZone, Timelike, Weekday,
+    DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, SecondsFormat,
+    TimeZone, Timelike, Weekday,
 };
 
 pub const SLOT_SECONDS: i64 = 30 * 60;
@@ -49,10 +50,33 @@ pub fn day_bounds(date: NaiveDate) -> (i64, i64) {
 
 fn local_midnight(date: NaiveDate) -> DateTime<Local> {
     let naive = date.and_hms_opt(0, 0, 0).expect("midnight is valid");
-    Local
-        .from_local_datetime(&naive)
-        .earliest()
-        .unwrap_or_else(|| Local.from_local_datetime(&naive).unwrap())
+    resolve_local(naive)
+}
+
+/// Resolve a naive local wall-clock time without panicking. Ambiguous times
+/// take the earliest instant, matching the old `.earliest()` behavior. A time
+/// inside a DST gap advances minute by minute to the first real instant. If no
+/// wall-clock instant exists within 26 hours (a fully skipped date such as
+/// Pacific/Apia 2011-12-30), the naive value is interpreted as UTC as a last
+/// resort so callers still receive a total, comparable instant.
+fn resolve_local(naive: NaiveDateTime) -> DateTime<Local> {
+    match Local.from_local_datetime(&naive) {
+        LocalResult::Single(dt) => dt,
+        LocalResult::Ambiguous(earliest, _) => earliest,
+        LocalResult::None => {
+            for minutes in 1..=(26 * 60) {
+                let Some(candidate) = naive.checked_add_signed(Duration::minutes(minutes)) else {
+                    break;
+                };
+                match Local.from_local_datetime(&candidate) {
+                    LocalResult::Single(dt) => return dt,
+                    LocalResult::Ambiguous(dt, _) => return dt,
+                    LocalResult::None => {}
+                }
+            }
+            Local.from_utc_datetime(&naive)
+        }
+    }
 }
 
 pub fn today(now: DateTime<Local>) -> NaiveDate {
@@ -130,11 +154,7 @@ pub fn slot_start_ts(date: NaiveDate, slot: usize) -> i64 {
     let naive = date
         .and_hms_opt(hour.min(23), minute, 0)
         .expect("valid slot");
-    Local
-        .from_local_datetime(&naive)
-        .earliest()
-        .unwrap_or_else(|| Local.from_local_datetime(&naive).unwrap())
-        .timestamp()
+    resolve_local(naive).timestamp()
 }
 
 pub fn next_slot_boundary(ts: i64) -> i64 {
