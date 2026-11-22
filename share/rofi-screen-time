@@ -8,8 +8,20 @@ set -u
 self=$(readlink -f -- "${BASH_SOURCE[0]}")
 dir=${self%/*}
 
+if [ ! -x "$dir/screen-time" ]; then
+    printf 'rofi-screen-time: missing %s\n' "$dir/screen-time" >&2
+    printf 'Reinstall screen-time or fix your launcher path.\n' >&2
+    exit 127
+fi
+
 if [ "${ROFI_RETV+x}" = x ]; then
     exec "$dir/screen-time" render --format rofi
+fi
+
+if ! command -v rofi >/dev/null 2>&1; then
+    printf 'rofi-screen-time: rofi is required but was not found in PATH\n' >&2
+    printf 'Install Rofi 2.x, then run: screen-time doctor\n' >&2
+    exit 127
 fi
 
 # Rofi uses logical coordinates. Convert the focused Hyprland monitor's

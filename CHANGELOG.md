@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- Install a commented `config.example.toml` template at
+  `~/.local/share/screen-time/config.example.toml`.
+- Add `screen-time config example`, `config path`, and `config init`
+  (`--force` required to replace an existing config). The installer and updater
+  still never create or overwrite `config.toml`.
+- Explicitly report missing `minisign` in `install.sh --check --json`.
+- `rofi-screen-time` reports missing `rofi` or a missing adjacent `screen-time`
+  binary with an actionable error.
+
 ## 0.4.0
 
 Data safety and updates:

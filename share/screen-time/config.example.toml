@@ -1,0 +1,49 @@
+# Screen Time configuration template.
+#
+# The config file is optional. Copy this file to:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/screen-time/config.toml
+#
+# then uncomment only the settings you want to change:
+#   mkdir -p ~/.config/screen-time
+#   cp ~/.local/share/screen-time/config.example.toml ~/.config/screen-time/config.toml
+#
+# The installer and updater never create or overwrite config.toml.
+
+[theme]
+# auto | matugen | static | config | nord | solarized | gruvbox
+mode = "auto"
+
+# Optional external Rofi chrome theme and palette sources.
+# rofi_theme = "~/.config/rofi/theme.rasi"
+# palette = "~/.config/theme/generated/palette.json"
+# static_env = "~/.config/theme/static.env"
+
+# Optional explicit colors. Validated as #RRGGBB.
+# base = "#0d1117"
+# mantle = "#161b22"
+# text = "#f0f6fc"
+# muted = "#8b949e"
+# accent = "#58a6ff"
+# power = "#39c5cf"
+# other = "#a0a9b5"
+
+[font]
+# family = "JetBrainsMono Nerd Font"
+# size = 12
+
+[layout]
+# auto | full | compact
+mode = "auto"
+
+[retention]
+# History is kept forever by default. A missing value or 0 also means
+# keep forever. Uncomment categories to opt in to pruning.
+# events_days = 30
+# sessions_days = 90
+# aggregates_days = 365
+# power_days = 365
+
+[storage]
+# Size warnings shown by `screen-time doctor`; these never delete data.
+# warn_db_mib = 250
+# hard_db_mib = 1024

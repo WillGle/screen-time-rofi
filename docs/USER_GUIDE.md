@@ -235,8 +235,29 @@ Or build with `--features session-count`. The default remains duration only.
 
 On any distro, create or edit
 `${XDG_CONFIG_HOME:-~/.config}/screen-time/config.toml`. The configuration is
-optional. Start with only the settings you want to change, for example
-`[theme]` and `mode = "nord"`.
+optional; the installer never creates or overwrites it.
+
+A commented template is installed at
+`~/.local/share/screen-time/config.example.toml`. Start from it explicitly:
+
+```bash
+# Print the path and the available template commands.
+screen-time config path
+
+# Create config.toml from the template. Refuses to overwrite an existing file.
+screen-time config init
+
+# Or copy the installed template yourself.
+mkdir -p ~/.config/screen-time
+cp ~/.local/share/screen-time/config.example.toml ~/.config/screen-time/config.toml
+
+# Print the template to stdout (for example, to review it first).
+screen-time config example
+```
+
+`screen-time config init --force` is the only command that replaces an existing
+config. Start with only the settings you want to change, for example `[theme]`
+and `mode = "nord"`.
 
 ```toml
 [theme]

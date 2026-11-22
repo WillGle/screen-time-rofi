@@ -123,6 +123,14 @@ json_escape() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+json_optional_string() {
+    if [ -n "$1" ]; then
+        printf '"%s"' "$(json_escape "$1")"
+    else
+        printf 'null'
+    fi
+}
+
 inject_failure() {
     local stage="$1"
     if [ "${SCREEN_TIME_INSTALLER_FAIL_AFTER:-}" = "$stage" ]; then
@@ -279,6 +287,7 @@ WRAPPER="${BIN_DIR}/rofi-screen-time"
 DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 THEME_DIR="${DATA_HOME}/screen-time"
 THEME="${THEME_DIR}/rofi/screen-time.rasi"
+EXAMPLE_CONFIG="${THEME_DIR}/config.example.toml"
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 CONFIG="${CONFIG_HOME}/screen-time/config.toml"
 UNIT_DIR="${CONFIG_HOME}/systemd/user"
@@ -1087,7 +1096,10 @@ do_check() {
     installed="$(installed_version || true)"
     installed="${installed:-none}"
 
-    if ! latest="$(resolve_latest_tag 2>/dev/null)"; then
+    if [ "$ALLOW_UNSIGNED" -ne 1 ] && ! have minisign; then
+        status=22
+        error="minisign is required to verify release signatures; install minisign or use --allow-unsigned for local testing"
+    elif ! latest="$(resolve_latest_tag 2>/dev/null)"; then
         status=20
         error="cannot resolve the latest release"
     elif ! is_stable_tag "$latest"; then
@@ -1119,11 +1131,11 @@ do_check() {
 {
   "version": 1,
   "installed_version": "$installed",
-  "latest_version": "${latest:-null}",
-  "release_url": "${release_url:-null}",
+  "latest_version": $(json_optional_string "$latest"),
+  "release_url": $(json_optional_string "$release_url"),
   "channel": "stable",
   "update_available": $available,
-  "signature_key_id": "${SIGNATURE_KEY_ID:-null}",
+  "signature_key_id": $(json_optional_string "$SIGNATURE_KEY_ID"),
   "checked_at": "$(date -Is)",
   "error": $( [ -n "$error" ] && printf '"%s"' "$error" || printf 'null' )
 }
@@ -1143,11 +1155,11 @@ EOF
 {
   "version": 1,
   "installed_version": "$installed",
-  "latest_version": "${latest:-null}",
-  "release_url": "${release_url:-null}",
+  "latest_version": $(json_optional_string "$latest"),
+  "release_url": $(json_optional_string "$release_url"),
   "channel": "stable",
   "update_available": $available,
-  "signature_key_id": "${SIGNATURE_KEY_ID:-null}",
+  "signature_key_id": $(json_optional_string "$SIGNATURE_KEY_ID"),
   "checked_at": "$(date -Is)",
   "error": $( [ -n "$error" ] && printf '"%s"' "$error" || printf 'null' )
 }
@@ -1484,7 +1496,7 @@ do_uninstall() {
     if have systemctl; then
         systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
-    rm -f -- "$BIN" "$WRAPPER" "$THEME" "$THEME_SHA_FILE" "$VERSION_FILE" "$INSTALL_COPY"
+    rm -f -- "$BIN" "$WRAPPER" "$THEME" "$EXAMPLE_CONFIG" "$THEME_SHA_FILE" "$VERSION_FILE" "$INSTALL_COPY"
     rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json" "${RUNTIME_DIR}/rofi-theme.rasi"
     rmdir "$RUNTIME_DIR" >/dev/null 2>&1 || true
     rm -f -- "$LAST_CHECK" "$FAILURE_STATE" "$IN_PROGRESS"
@@ -1625,6 +1637,9 @@ do_install() {
     if [ "$NO_THEME" -eq 0 ]; then
         atomic_install "${STAGE}/extract/share/rofi/screen-time.rasi" "$THEME" 644
         inject_failure "theme"
+    fi
+    if [ -f "${STAGE}/extract/share/screen-time/config.example.toml" ]; then
+        atomic_install "${STAGE}/extract/share/screen-time/config.example.toml" "$EXAMPLE_CONFIG" 644
     fi
     if [ "$NO_SERVICE" -eq 0 ]; then
         sed "s|^ExecStart=.*|ExecStart=${BIN} daemon|" \

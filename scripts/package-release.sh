@@ -16,10 +16,11 @@ cargo build --release --locked
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/screen-time-release.XXXXXX")"
 trap 'rm -rf -- "$STAGE"' EXIT INT TERM
 
-mkdir -p "$STAGE/bin" "$STAGE/share/rofi" "$STAGE/systemd" "$ROOT/dist"
+mkdir -p "$STAGE/bin" "$STAGE/share/rofi" "$STAGE/share/screen-time" "$STAGE/systemd" "$ROOT/dist"
 install -m 755 target/release/screen-time "$STAGE/bin/screen-time"
 install -m 755 share/rofi-screen-time "$STAGE/bin/rofi-screen-time"
 install -m 644 share/rofi/screen-time.rasi "$STAGE/share/rofi/screen-time.rasi"
+install -m 644 share/screen-time/config.example.toml "$STAGE/share/screen-time/config.example.toml"
 install -m 644 systemd/screen-time.service "$STAGE/systemd/screen-time.service"
 install -m 644 LICENSE README.md CHANGELOG.md "$STAGE/"
 

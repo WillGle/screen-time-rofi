@@ -1,10 +1,16 @@
+use std::fs;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
+use crate::config;
 use crate::paths::Paths;
 use crate::{daemon, doctor, render, snapshot, ui, view};
+
+const CONFIG_TEMPLATE: &str = include_str!("../share/screen-time/config.example.toml");
 
 #[derive(Debug, Parser)]
 #[command(
@@ -35,6 +41,28 @@ pub enum Command {
     SchemaVersion,
     /// Checkpoint and truncate the database WAL.
     Checkpoint,
+    /// Print or create the optional user configuration.
+    Config(ConfigArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub command: ConfigCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    /// Print the commented configuration template.
+    Example,
+    /// Print the configuration file path.
+    Path,
+    /// Write the template if the config does not exist yet.
+    Init {
+        /// Replace an existing config file.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -121,6 +149,49 @@ pub fn run() -> Result<()> {
             let db = crate::db::Database::open_snapshot_source(&paths.db_path)?;
             db.checkpoint()?;
             println!("checkpointed {}", paths.db_path.display());
+            Ok(())
+        }
+        Command::Config(args) => run_config(args),
+    }
+}
+
+fn run_config(args: ConfigArgs) -> Result<()> {
+    match args.command {
+        ConfigCommand::Example => {
+            print!("{CONFIG_TEMPLATE}");
+            Ok(())
+        }
+        ConfigCommand::Path => {
+            println!("{}", config::default_config_path().display());
+            Ok(())
+        }
+        ConfigCommand::Init { force } => {
+            let path = config::default_config_path();
+            if path.exists() && !force {
+                bail!(
+                    "config already exists: {} (use --force to replace it)",
+                    path.display()
+                );
+            }
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("cannot create {}", parent.display()))?;
+            }
+            let mut options = fs::OpenOptions::new();
+            options.write(true).mode(0o600);
+            if force {
+                options.create(true).truncate(true);
+            } else {
+                options.create_new(true);
+            }
+            let mut file = options
+                .open(&path)
+                .with_context(|| format!("cannot create {}", path.display()))?;
+            file.write_all(CONFIG_TEMPLATE.as_bytes())
+                .with_context(|| format!("cannot write {}", path.display()))?;
+            file.sync_all()
+                .with_context(|| format!("cannot fsync {}", path.display()))?;
+            println!("created {}", path.display());
             Ok(())
         }
     }

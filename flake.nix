@@ -28,7 +28,7 @@
           lib = pkgs.lib;
           screen-time = pkgs.rustPlatform.buildRustPackage {
             pname = "screen-time";
-            version = "0.4.0";
+            version = "0.4.1";
 
             src = lib.cleanSourceWith {
               src = lib.cleanSource ./.;
@@ -51,8 +51,9 @@
             preCheck = "export TZ=UTC";
 
             postInstall = ''
-              mkdir -p "$out/share/rofi" "$out/systemd"
+              mkdir -p "$out/share/rofi" "$out/share/screen-time" "$out/systemd"
               install -m 644 share/rofi/screen-time.rasi "$out/share/rofi/screen-time.rasi"
+              install -m 644 share/screen-time/config.example.toml "$out/share/screen-time/config.example.toml"
               install -m 644 systemd/screen-time.service "$out/systemd/screen-time.service"
               install -m 755 share/rofi-screen-time "$out/bin/rofi-screen-time"
               wrapProgram "$out/bin/rofi-screen-time" \

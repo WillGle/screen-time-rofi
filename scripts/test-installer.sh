@@ -165,10 +165,11 @@ make_tarball() {
     local out="$1"
     local stage
     stage="$(mktemp -d "$WORK/release.XXXXXX")"
-    mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/systemd"
+    mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/share/screen-time" "$stage/systemd"
     install -m 755 "$ROOT/target/debug/screen-time" "$stage/bin/screen-time"
     install -m 755 "$ROOT/share/rofi-screen-time" "$stage/bin/rofi-screen-time"
     install -m 644 "$ROOT/share/rofi/screen-time.rasi" "$stage/share/rofi/screen-time.rasi"
+    install -m 644 "$ROOT/share/screen-time/config.example.toml" "$stage/share/screen-time/config.example.toml"
     install -m 644 "$ROOT/systemd/screen-time.service" "$stage/systemd/screen-time.service"
     install -m 644 "$ROOT/LICENSE" "$ROOT/README.md" "$stage/"
     mkdir -p "$(dirname "$out")"
@@ -184,7 +185,7 @@ make_fake_release() {
     local stage dir
     stage="$(mktemp -d "$WORK/fake-release.XXXXXX")"
     dir="${fixture}/${tag}"
-    mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/systemd" "$dir"
+    mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/share/screen-time" "$stage/systemd" "$dir"
     cat >"$stage/bin/screen-time" <<EOF
 #!/usr/bin/env bash
 if [ "\$1" = "--version" ]; then
@@ -201,6 +202,7 @@ EOF
     printf '#!/usr/bin/env bash\nexit 0\n' >"$stage/bin/rofi-screen-time"
     chmod 755 "$stage/bin/rofi-screen-time"
     install -m 644 "$ROOT/share/rofi/screen-time.rasi" "$stage/share/rofi/screen-time.rasi"
+    install -m 644 "$ROOT/share/screen-time/config.example.toml" "$stage/share/screen-time/config.example.toml"
     install -m 644 "$ROOT/systemd/screen-time.service" "$stage/systemd/screen-time.service"
     install -m 644 "$ROOT/LICENSE" "$ROOT/README.md" "$stage/"
     tar -czf "$dir/screen-time-x86_64-linux.tar.gz" -C "$stage" .
@@ -264,13 +266,17 @@ doctor_json() {
 # Core install/upgrade/rollback
 # ---------------------------------------------------------------------------
 
+TEST_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n1)"
+TEST_TAG="v${TEST_VERSION}"
 TARBALL="$WORK/release/screen-time-test.tar.gz"
 make_tarball "$TARBALL"
 
 assert_success "first install" run_install --no-service >/dev/null
 assert_file "$BIN" "first install writes the binary"
 assert_file "$THEME" "first install writes the theme"
-assert_eq "$(cat "$STATE/installed-version")" "0.4.0" "installed version is recorded"
+assert_file "$XDG_DATA_HOME/screen-time/config.example.toml" "first install writes the config template"
+assert_not_file "$CONFIG" "installer does not create config.toml"
+assert_eq "$(cat "$STATE/installed-version")" "$TEST_VERSION" "installed version is recorded"
 
 # Install the unit in a second pass (service active).
 touch "$SYSTEMCTL_STATE/active"
@@ -366,13 +372,13 @@ assert_success "reinstall after restoring unit" run_install --force >/dev/null
 
 for stage in binary wrapper theme unit version data-check doctor; do
     assert_failure "fault after $stage rolls back" env SCREEN_TIME_INSTALLER_FAIL_AFTER="$stage" bash "$ROOT/install.sh" --tarball "$TARBALL" --allow-unsigned >/dev/null 2>&1
-    assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "binary restored after fault at $stage"
+    assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "binary restored after fault at $stage"
     assert_eq "300" "$("$BIN" check-data --against "$REFERENCE" --json | jq -r '.actual_fingerprint.session_seconds')" "data restored after fault at $stage"
     assert_file "$SYSTEMCTL_STATE/active" "service restored after fault at $stage"
 done
 
 assert_failure "fault after snapshot" env SCREEN_TIME_INSTALLER_FAIL_AFTER=snapshot bash "$ROOT/install.sh" --tarball "$TARBALL" --allow-unsigned >/dev/null 2>&1
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "binary restored after snapshot fault"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "binary restored after snapshot fault"
 
 # Kill after the backup, then after the atomic binary replacement. The next
 # run must recover the previous installation both times.
@@ -398,14 +404,14 @@ else
     pass "read-only backup dir aborts"
 fi
 chmod 700 "$BACKUPS"
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "binary intact after read-only backup abort"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "binary intact after read-only backup abort"
 assert_file "$SYSTEMCTL_STATE/active" "service active after read-only backup abort"
 
 # Read-only install target aborts after the snapshot and restores everything.
 chmod 500 "$(dirname "$BIN")"
 assert_failure "read-only binary dir aborts" run_install >/dev/null 2>&1
 chmod 700 "$(dirname "$BIN")"
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "binary restored after read-only install target"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "binary restored after read-only install target"
 assert_eq "300" "$("$BIN" check-data --against "$REFERENCE" --json | jq -r '.actual_fingerprint.session_seconds')" "data restored after read-only install target"
 assert_file "$SYSTEMCTL_STATE/active" "service restored after read-only install target"
 
@@ -423,13 +429,13 @@ wait "$lock_pid" || true
 
 make_release_fixture() {
     local dir="$1" key="$2"
-    mkdir -p "$dir/v0.4.0"
-    cp "$TARBALL" "$dir/v0.4.0/screen-time-x86_64-linux.tar.gz"
-    install -m 755 "$ROOT/install.sh" "$dir/v0.4.0/install.sh"
-    install -m 755 "$ROOT/uninstall.sh" "$dir/v0.4.0/uninstall.sh"
-    install -m 644 "$ROOT/minisign.pub" "$dir/v0.4.0/minisign.pub"
+    mkdir -p "$dir/$TEST_TAG"
+    cp "$TARBALL" "$dir/$TEST_TAG/screen-time-x86_64-linux.tar.gz"
+    install -m 755 "$ROOT/install.sh" "$dir/$TEST_TAG/install.sh"
+    install -m 755 "$ROOT/uninstall.sh" "$dir/$TEST_TAG/uninstall.sh"
+    install -m 644 "$ROOT/minisign.pub" "$dir/$TEST_TAG/minisign.pub"
     (
-        cd "$dir/v0.4.0"
+        cd "$dir/$TEST_TAG"
         sha256sum screen-time-x86_64-linux.tar.gz install.sh uninstall.sh minisign.pub >SHA256SUMS
         rm -f -- SHA256SUMS.minisig install.sh.minisig
         minisign -Sm SHA256SUMS -s "$key" -x SHA256SUMS.minisig >/dev/null
@@ -448,7 +454,7 @@ FIXTURE="$WORK/fixture"
 make_release_fixture "$FIXTURE" "$KEY1"
 export SCREEN_TIME_TRUSTED_KEYS="test-key-1:$PUB1"
 export SCREEN_TIME_RELEASES_BASE="file://$FIXTURE"
-export SCREEN_TIME_LATEST_TAG="v0.4.0"
+export SCREEN_TIME_LATEST_TAG="$TEST_TAG"
 
 set +e
 check_output="$(bash "$ROOT/install.sh" --check --json)"
@@ -463,7 +469,7 @@ printf 'dummy  not-the-expected-asset\n' >"$FIXTURE/v0.5.0/SHA256SUMS"
 set +e
 SCREEN_TIME_LATEST_TAG=v0.5.0 bash "$ROOT/install.sh" --check --json >"$WORK/invalid.json"
 invalid_status=$?
-SCREEN_TIME_RELEASES_BASE="file://$WORK/missing" SCREEN_TIME_LATEST_TAG=v0.4.0 \
+SCREEN_TIME_RELEASES_BASE="file://$WORK/missing" SCREEN_TIME_LATEST_TAG="$TEST_TAG" \
     bash "$ROOT/install.sh" --check --json >"$WORK/network.json"
 network_status=$?
 set -e
@@ -473,17 +479,17 @@ assert_eq "false" "$(jq -r '.error == null' "$WORK/invalid.json")" "invalid rele
 assert_eq "20" "$network_status" "unreachable release exits 20"
 
 set +e
-SCREEN_TIME_FETCH_FAIL_RC=28 SCREEN_TIME_LATEST_TAG=v0.4.0 \
+SCREEN_TIME_FETCH_FAIL_RC=28 SCREEN_TIME_LATEST_TAG="$TEST_TAG" \
     bash "$ROOT/install.sh" --check --json >"$WORK/timeout.json"
 timeout_status=$?
-SCREEN_TIME_FETCH_FAIL_RC=22 SCREEN_TIME_LATEST_TAG=v0.4.0 \
+SCREEN_TIME_FETCH_FAIL_RC=22 SCREEN_TIME_LATEST_TAG="$TEST_TAG" \
     bash "$ROOT/install.sh" --check --json >"$WORK/rate-limit.json"
 rate_limit_status=$?
 set -e
 assert_eq "20" "$timeout_status" "timeout is classified as a network error"
 assert_eq "21" "$rate_limit_status" "HTTP/rate-limit failure is classified as an invalid release"
 
-assert_success "signed release install" bash "$ROOT/install.sh" --version v0.4.0 >/dev/null
+assert_success "signed release install" bash "$ROOT/install.sh" --version "$TEST_TAG" >/dev/null
 assert_eq "300" "$("$BIN" check-data --against "$REFERENCE" --json | jq -r '.actual_fingerprint.session_seconds')" "signed release install preserves data"
 verified_count=0
 while IFS= read -r dir; do
@@ -499,25 +505,25 @@ make_fake_release "$FIXTURE" v0.3.0 0.3.0 "$KEY1"
 backup_count_before="$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 assert_failure "manual downgrade is refused" \
     env SCREEN_TIME_RELEASES_BASE="file://$FIXTURE" bash "$ROOT/install.sh" --version v0.3.0 >/dev/null 2>&1
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "downgrade refusal leaves the installed version"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "downgrade refusal leaves the installed version"
 assert_eq "$backup_count_before" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)" "downgrade refusal creates no backup"
 
 mkdir -p "$WORK/tampered"
 cp -a "$FIXTURE/." "$WORK/tampered/"
-printf 'tampered' >>"$WORK/tampered/v0.4.0/screen-time-x86_64-linux.tar.gz"
-assert_failure "tampered asset is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/tampered" bash "$ROOT/install.sh" --version v0.4.0 >/dev/null 2>&1
+printf 'tampered' >>"$WORK/tampered/$TEST_TAG/screen-time-x86_64-linux.tar.gz"
+assert_failure "tampered asset is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/tampered" bash "$ROOT/install.sh" --version "$TEST_TAG" >/dev/null 2>&1
 
 mkdir -p "$WORK/wrongkey"
 cp -a "$FIXTURE/." "$WORK/wrongkey/"
-(cd "$WORK/wrongkey/v0.4.0" && rm -f SHA256SUMS.minisig install.sh.minisig \
+(cd "$WORK/wrongkey/$TEST_TAG" && rm -f SHA256SUMS.minisig install.sh.minisig \
     && minisign -Sm SHA256SUMS -s "$KEY2" -x SHA256SUMS.minisig >/dev/null \
     && minisign -Sm install.sh -s "$KEY2" -x install.sh.minisig >/dev/null)
-assert_failure "wrong signing key is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/wrongkey" bash "$ROOT/install.sh" --version v0.4.0 >/dev/null 2>&1
+assert_failure "wrong signing key is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/wrongkey" bash "$ROOT/install.sh" --version "$TEST_TAG" >/dev/null 2>&1
 
 # Key rotation overlap: both keys trusted, release signed by the new key.
 mkdir -p "$WORK/rotated"
 cp -a "$FIXTURE/." "$WORK/rotated/"
-(cd "$WORK/rotated/v0.4.0" && rm -f SHA256SUMS.minisig install.sh.minisig \
+(cd "$WORK/rotated/$TEST_TAG" && rm -f SHA256SUMS.minisig install.sh.minisig \
     && minisign -Sm SHA256SUMS -s "$KEY2" -x SHA256SUMS.minisig >/dev/null \
     && minisign -Sm install.sh -s "$KEY2" -x install.sh.minisig >/dev/null)
 set +e
@@ -540,22 +546,22 @@ assert_eq "false" "$(jq -r '.error == null' "$WORK/revoked.json")" "revoked key 
 
 mkdir -p "$WORK/unsigned"
 cp -a "$FIXTURE/." "$WORK/unsigned/"
-rm -f "$WORK/unsigned/v0.4.0/"*.minisig
-assert_failure "unsigned release is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/unsigned" bash "$ROOT/install.sh" --version v0.4.0 >/dev/null 2>&1
+rm -f "$WORK/unsigned/$TEST_TAG/"*.minisig
+assert_failure "unsigned release is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/unsigned" bash "$ROOT/install.sh" --version "$TEST_TAG" >/dev/null 2>&1
 
 mkdir -p "$WORK/tampered-installer"
 cp -a "$FIXTURE/." "$WORK/tampered-installer/"
-printf '\n# tampered installer\n' >>"$WORK/tampered-installer/v0.4.0/install.sh"
-assert_failure "tampered installer is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/tampered-installer" bash "$ROOT/install.sh" --version v0.4.0 >/dev/null 2>&1
+printf '\n# tampered installer\n' >>"$WORK/tampered-installer/$TEST_TAG/install.sh"
+assert_failure "tampered installer is refused" env SCREEN_TIME_RELEASES_BASE="file://$WORK/tampered-installer" bash "$ROOT/install.sh" --version "$TEST_TAG" >/dev/null 2>&1
 
 # Auto-update notification and rollback behavior. The fake old binary makes
-# the signed v0.4.0 fixture look newer without rebuilding the project.
+# the signed fixture look newer without rebuilding the project.
 : >"$NOTIFY_LOG"
 make_fake_installed 0.3.0
 assert_success "auto-apply update succeeds" \
     env SCREEN_TIME_AUTO_UPDATE=1 SCREEN_TIME_ALLOW_BATTERY=1 \
     bash "$ROOT/install.sh" --update --auto --channel stable --keep-backups 2 >/dev/null
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "auto-apply installs the signed release"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "auto-apply installs the signed release"
 if grep -q 'Screen Time updated' "$NOTIFY_LOG"; then
     pass "auto-apply sends a success notification"
 else
@@ -591,7 +597,7 @@ else
 fi
 
 assert_success "restore real binary after notification tests" run_install >/dev/null
-assert_eq "0.4.0" "$("$BIN" --version | awk '{print $2}')" "real binary restored after notification tests"
+assert_eq "$TEST_VERSION" "$("$BIN" --version | awk '{print $2}')" "real binary restored after notification tests"
 
 unset SCREEN_TIME_TRUSTED_KEYS SCREEN_TIME_RELEASES_BASE SCREEN_TIME_LATEST_TAG
 
@@ -623,6 +629,7 @@ assert_success "uninstall keeps state" bash "$ROOT/install.sh" --uninstall >/dev
 assert_file "$STATE/screen-time.db" "uninstall keeps the database"
 assert_file "$BACKUPS" "uninstall keeps backups and history"
 assert_not_file "$BIN" "uninstall removes the binary"
+assert_not_file "$XDG_DATA_HOME/screen-time/config.example.toml" "uninstall removes the config template"
 assert_not_file "$XDG_CONFIG_HOME/systemd/user/screen-time-update-apply.timer" "uninstall removes update timers"
 
 assert_success "purge with --yes" bash "$ROOT/install.sh" --uninstall --purge --yes >/dev/null

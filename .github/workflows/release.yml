@@ -58,10 +58,11 @@ jobs:
           set -euo pipefail
           stage="$(mktemp -d)"
           trap 'rm -rf "$stage"' EXIT
-          mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/systemd" dist
+          mkdir -p "$stage/bin" "$stage/share/rofi" "$stage/share/screen-time" "$stage/systemd" dist
           install -m 755 target/release/screen-time "$stage/bin/screen-time"
           install -m 755 share/rofi-screen-time "$stage/bin/rofi-screen-time"
           install -m 644 share/rofi/screen-time.rasi "$stage/share/rofi/screen-time.rasi"
+          install -m 644 share/screen-time/config.example.toml "$stage/share/screen-time/config.example.toml"
           install -m 644 systemd/screen-time.service "$stage/systemd/screen-time.service"
           install -m 644 LICENSE README.md CHANGELOG.md "$stage/"
           asset="screen-time-${ARCH}-linux.tar.gz"

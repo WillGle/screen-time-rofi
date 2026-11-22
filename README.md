@@ -56,4 +56,8 @@ To set a default theme, edit `~/.config/screen-time/config.toml` and reopen Rofi
 mode = "nord" # auto | matugen | static | config | nord | solarized | gruvbox
 ```
 
+The installer also ships `~/.local/share/screen-time/config.example.toml`.
+Run `screen-time config init` to copy it into place without overwriting an
+existing config.
+
 [Developer docs](docs/README.md) · [MIT license](LICENSE)

@@ -117,9 +117,9 @@ rm -f -- "$UNIT" \
 if [ "$NO_SERVICE" -eq 0 ] && have systemctl; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
-rm -f -- "$BIN" "$WRAPPER" "$THEME" "$THEME_DIR/installed-version" \
-    "$THEME_DIR/theme.sha256" "$STATE_DIR/theme.sha256" "$STATE_DIR/installed-version" \
-    "$STATE_DIR/install.sh"
+rm -f -- "$BIN" "$WRAPPER" "$THEME" "$THEME_DIR/config.example.toml" \
+    "$THEME_DIR/installed-version" "$THEME_DIR/theme.sha256" \
+    "$STATE_DIR/theme.sha256" "$STATE_DIR/installed-version" "$STATE_DIR/install.sh"
 rm -f -- "${RUNTIME_DIR}/live.json" "${RUNTIME_DIR}/ui.json" "${RUNTIME_DIR}/rofi-theme.rasi"
 rmdir "$RUNTIME_DIR" >/dev/null 2>&1 || true
 rm -f -- "${UPDATE_DIR}/last-check.json" "${UPDATE_DIR}/last-update.json" \
