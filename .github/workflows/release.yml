@@ -30,6 +30,8 @@ jobs:
       - name: Shell scripts
         run: shellcheck install.sh uninstall.sh share/rofi-screen-time scripts/package-release.sh scripts/sign-release.sh scripts/test-installer.sh scripts/restore-drill.sh scripts/benchmark-linux-sandbox.sh
       - name: Installer integration and fault injection
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: scripts/test-installer.sh
 
   build:

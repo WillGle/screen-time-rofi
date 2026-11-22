@@ -6,6 +6,8 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# rustup-based CI runners may not have a default toolchain selected.
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/screen-time-installer-test.XXXXXX")"
 PASS=0
 FAIL=0
