@@ -46,6 +46,19 @@ NAMES = {
     "screentime_qt": "Screentime (Qt)",
 }
 
+# Trackers with a foreground UI. The measured UI is closed for every row in
+# the background charts; CLI-only tools are kept in a separate reference table.
+UI_KEYS = (
+    "screen_time",
+    "activitywatch",
+    "mono",
+    "toki",
+    "atracker",
+    "hpr",
+    "screentime_qt",
+)
+UI_SHORT_KEYS = ("screen_time", "activitywatch", "mono", "toki", "atracker")
+
 
 def esc(value: object) -> str:
     return (
@@ -148,8 +161,10 @@ def score_rows(rows: dict[str, dict[str, float]]) -> list[dict[str, float]]:
 
 
 def chart_footprint() -> str:
-    rows = score_rows(read_medians("linux-ten-trackers.json")[0])
-    width, height = 1200, 700
+    rows = score_rows(
+        {key: row for key, row in read_medians("linux-ten-trackers.json")[0].items() if key in UI_KEYS}
+    )
+    width, height = 1200, 540
     label_x = 190
     top = 180
     row_h = 40
@@ -161,7 +176,7 @@ def chart_footprint() -> str:
     body = [
         header(
             "Background footprint",
-            "Median of 3 trials on the six-second workload; rows follow the composite footprint score.",
+            "UI-capable cohort, UI closed; median of 3 trials on the six-second workload.",
             width,
             "lower is better",
         )
@@ -215,17 +230,17 @@ def chart_footprint() -> str:
             body.append(label(bar_x + actual_w + 8, y + 17, shown, 14, TEXT, "500"))
     for value in (0, 20, 40, 60, 80):
         x = 205 + 200 * value / 85
-        body.append(text(x, 640, value, 11, MUTED, anchor="middle"))
+        body.append(text(x, 500, value, 11, MUTED, anchor="middle"))
     for value in (0, 10, 20, 30, 40, 50):
         x = 455 + 290 * value / 55
-        body.append(text(x, 640, value, 11, MUTED, anchor="middle"))
+        body.append(text(x, 500, value, 11, MUTED, anchor="middle"))
     for value in (10, 100, 1000):
         x = 770 + 370 * ((math.log10(value) - 1) / (math.log10(2200) - 1))
-        body.append(text(x, 640, value, 11, MUTED, anchor="middle"))
+        body.append(text(x, 500, value, 11, MUTED, anchor="middle"))
     body.append(
         footer(
-            "Blue = Screen Time; orange = a high-cost value. PSS is proportional set size; "
-            "CPU is a percentage of one logical core. Writes exclude startup and shutdown.",
+            "Blue = Screen Time; orange = a high-cost value. Tracker process only; the UI is closed "
+            "for every row. Writes exclude startup and shutdown.",
             width,
             height,
         )
@@ -233,7 +248,7 @@ def chart_footprint() -> str:
     return svg(
         width,
         height,
-        "Background footprint of ten Linux trackers",
+        "Background footprint of UI-capable Linux trackers",
         "Horizontal bar chart comparing median PSS, switching CPU, and disk writes. "
         "Screen Time uses 4.48 MiB PSS, 0.00 percent CPU, and 80 KiB writes.",
         "".join(body),
@@ -241,19 +256,23 @@ def chart_footprint() -> str:
 
 
 def chart_fast_switch() -> str:
-    rows = read_medians("linux-expanded-short.json")[0]
+    rows = {
+        key: row
+        for key, row in read_medians("linux-expanded-short.json")[0].items()
+        if key in UI_SHORT_KEYS
+    }
     ordered = sorted(
         rows.values(), key=lambda row: row["apps"], reverse=True
     )
-    width, height = 1080, 530
-    top = 155
+    width, height = 1080, 400
+    top = 145
     row_h = 40
     bar_x = 270
     bar_w = 720
     body = [
         header(
             "Fast-switch coverage",
-            "Distinct fixture apps retained in the 1.5-second-per-app workload.",
+            "UI-capable cohort; distinct apps retained in the 1.5-second workload.",
             width,
             "higher is better",
         )
@@ -281,7 +300,7 @@ def chart_fast_switch() -> str:
         body.append(label(bar_x + actual_w + 8, y + 18, f"{shown} / 10", 14, TEXT, "600"))
     body.append(
         footer(
-            "Short workload: 10 fixture apps, 1.5 s each, median of 3 trials. "
+            "UI-capable cohort, UI closed. 10 fixture apps, 1.5 s each, median of 3 trials. "
             "A low result means short focuses were merged or missed.",
             width,
             height,
@@ -290,7 +309,7 @@ def chart_fast_switch() -> str:
     return svg(
         width,
         height,
-        "Fast-switch coverage for eight Linux trackers",
+        "Fast-switch coverage for UI-capable Linux trackers",
         "Bar chart of distinct apps retained. Screen Time and arbtt retained 10 of 10; "
         "Toki retained 1 of 10.",
         "".join(body),
@@ -298,7 +317,11 @@ def chart_fast_switch() -> str:
 
 
 def chart_memory_coverage() -> str:
-    rows = read_medians("linux-expanded-short.json")[0]
+    rows = {
+        key: row
+        for key, row in read_medians("linux-expanded-short.json")[0].items()
+        if key in UI_SHORT_KEYS
+    }
     width, height = 1100, 690
     left, right = 104, 1040
     top, bottom = 170, 560
@@ -316,7 +339,7 @@ def chart_memory_coverage() -> str:
     body = [
         header(
             "Memory vs. capture completeness",
-            "The useful corner is top-left: low memory and full coverage. Eight trackers, 1.5-second workload.",
+            "UI-capable cohort, UI closed. Blue = Screen Time; gray = other trackers. The useful corner is top-left.",
             width,
             "PSS: lower is better",
         ),
@@ -346,12 +369,10 @@ def chart_memory_coverage() -> str:
 
     offsets = {
         "screen_time": (14, 22, "start"),
-        "arbtt": (14, -14, "start"),
         "toki": (14, 5, "start"),
         "screen_time_logger": (14, -10, "start"),
         "atracker": (14, 18, "start"),
         "mono": (14, 5, "start"),
-        "niri_screen_time": (14, 5, "start"),
         "activitywatch": (-14, 5, "end"),
     }
     for key, row in rows.items():
@@ -368,14 +389,6 @@ def chart_memory_coverage() -> str:
         value = f"{row['name']}  {row['pss']:.2f} MiB · {shown_apps}/10"
         body.append(label(x + dx, y + dy, value, 14, TEXT if is_main else MUTED, "600" if is_main else "400", anchor))
 
-    body.append(
-        f'<circle cx="{right - 348}" cy="{top + 26}" r="6" fill="{ACCENT}"/>'
-    )
-    body.append(label(right - 336, top + 30, "Screen Time", 14, TEXT, "600"))
-    body.append(
-        f'<circle cx="{right - 218}" cy="{top + 26}" r="5" fill="#94a3b8"/>'
-    )
-    body.append(label(right - 206, top + 30, "Other trackers", 14, MUTED))
     body.append(
         footer(
             "PSS is proportional set size; coverage is distinct fixture app names retained. "
@@ -397,11 +410,10 @@ def chart_memory_coverage() -> str:
 def chart_install_size() -> str:
     values = [
         ("Screen Time package", 54.9, ACCENT),
-        ("arbtt", 89.4, "#64748b"),
         ("Screen Time + Rofi 2.0.0", 466.1, PURPLE),
         ("ActivityWatch", 2453.2, ORANGE),
     ]
-    width, height = 1040, 420
+    width, height = 1040, 380
     left, bar_x, bar_w = 40, 300, 620
     top, row_h = 140, 46
     xmin, xmax = 50.0, 3000.0
@@ -434,8 +446,8 @@ def chart_install_size() -> str:
         body.append(text(x, height - 78, value, 12, MUTED, anchor="middle"))
     body.append(
         footer(
-            "Screen Time + Rofi is the realistic desktop install; the package alone excludes the launcher UI. "
-            "Numbers are uncompressed store closures, not download sizes.",
+            "UI-capable install comparison. Screen Time + Rofi is the realistic desktop install; "
+            "numbers are uncompressed store closures, not download sizes.",
             width,
             height,
         )
@@ -445,7 +457,7 @@ def chart_install_size() -> str:
         height,
         "Installation footprint",
         "Log-scale bar chart of Nix closure sizes: Screen Time package 54.9 MiB, "
-        "Screen Time plus Rofi 466.1 MiB, arbtt 89.4 MiB, ActivityWatch 2453.2 MiB.",
+        "Screen Time plus Rofi 466.1 MiB, ActivityWatch 2453.2 MiB.",
         "".join(body),
     )
 

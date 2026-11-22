@@ -1,18 +1,18 @@
-# Screen Time vs Linux trackers
+# Screen Time vs Linux trackers with a UI
 
-This page compares Screen Time 0.2.1 with nine Linux trackers in the same
-sandbox. It focuses on background cost, fast-switch coverage, UI latency, and
-installation footprint. The 0.3.0 release did not change these paths. For
-installation and configuration, see the [user guide](USER_GUIDE.md).
+This page compares Screen Time 0.2.1 with **UI-capable** Linux trackers in the
+same sandbox. CLI/headless tools are kept in a separate reference because a
+background log check is not the same measurement as a foreground UI.
+The 0.3.0 release did not change these paths. For installation and
+configuration, see the [user guide](USER_GUIDE.md).
 
-The comparison is intentionally narrow. Screen Time is a Hyprland-only,
-app-level, local-only tracker with a keyboard-first Rofi popup. Several
-competitors cover more platforms, richer reports, or cloud workflows. Read the
-tradeoffs, not just the lowest number.
+Screen Time is a Hyprland-only, app-level, local-only tracker with a
+keyboard-first Rofi popup. Several competitors cover more platforms, richer
+reports, or cloud workflows. Read the tradeoffs, not just the lowest number.
 
 ## At a glance
 
-![Memory versus fast-switch coverage: Screen Time is at 4.49 MiB and 10/10; Toki is smaller at 3.90 MiB but retains 1/10.](charts/memory-coverage.svg)
+![Memory versus fast-switch coverage for UI-capable trackers: Screen Time is at 4.49 MiB and 10/10; Toki is smaller at 3.90 MiB but retains 1/10.](charts/memory-coverage.svg)
 
 - **Best measured balance:** Screen Time uses 4.49 MiB PSS and retained all
   10 fixture apps in the 1.5-second workload. It is the only tracker under
@@ -21,62 +21,58 @@ tradeoffs, not just the lowest number.
   switches. Its five-second noise floor merges brief focuses into the previous
   session.
 - **Heaviest background stacks:** ActivityWatch uses 81.79 MiB and writes
-  2,080 KiB in the six-second run. HPR uses 50.92% of one core; Niri Screen Time
-  uses 10.06%.
+  2,080 KiB in the six-second run. HPR uses 50.92% of one core; Screentime (Qt)
+  uses 45.86 MiB.
 - **Not a feature-parity contest:** ActivityWatch, HPR, atracker, and ManicTime
   cover broader reporting. Screen Time competes on speed, focus, and local
   app-level data.
 
-The scatter uses the 1.5-second workload, so it includes the eight trackers that
-were measured there. The leaderboard below uses the six-second cohort; HPR and
-Screentime appear only in that cohort.
+The scatter uses the five UI-capable trackers measured in the 1.5-second
+workload. The leaderboard below uses the seven UI-capable trackers in the
+six-second cohort; ManicTime has no resource result here.
 
 ### Footprint leaderboard
 
-| # | Tracker | PSS (MiB) | Processes / threads | CPU, switching | Writes (KiB) | Score |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | Toki | 3.89 | 1 / 8 | 0.02% | 396 | 100.0 |
-| 2 | **Screen Time** | **4.48** | **1 / 3** | **0.00%** | **80** | **90.2** |
-| 3 | Mono | 7.04 | 1 / 6 | 1.68% | 384 | 66.5 |
-| 4 | ScreenTimeLogger | 8.54 | 1 / 1 | 0.35% | 12 | 59.2 |
-| 5 | arbtt | 9.28 | 1 / 2 | 0.24% | 12 | 56.5 |
-| 6 | atracker | 9.33 | 1 / 22 | 0.36% | 480 | 56.3 |
-| 7 | HPR | 14.50 | 1 / 6 | 50.92% | 976 | 45.1 |
-| 8 | Niri Screen Time | 15.60 | 1 / 9 | 10.06% | 224 | 43.7 |
-| 9 | Screentime (Qt) | 45.86 | 1 / 3 | 1.08% | 40 | 31.4 |
-| 10 | ActivityWatch | 81.79 | 4 / 25 | 0.85% | 2,080 | 9.8 |
+| # | Tracker | UI surface | PSS (MiB) | Processes / threads | CPU, switching | Writes (KiB) | Score |
+|---:|---|---|---:|---:|---:|---:|---:|
+| 1 | Toki | Tauri/WebKitGTK | 3.89 | 1 / 8 | 0.02% | 396 | 100.0 |
+| 2 | **Screen Time** | **Rofi popup** | **4.48** | **1 / 3** | **0.00%** | **80** | **90.2** |
+| 3 | Mono | terminal | 7.04 | 1 / 6 | 1.68% | 384 | 66.5 |
+| 4 | atracker | browser | 9.33 | 1 / 22 | 0.36% | 480 | 56.3 |
+| 5 | HPR | Slint | 14.50 | 1 / 6 | 50.92% | 976 | 45.1 |
+| 6 | Screentime (Qt) | Qt | 45.86 | 1 / 3 | 1.08% | 40 | 31.4 |
+| 7 | ActivityWatch | browser | 81.79 | 4 / 25 | 0.85% | 2,080 | 9.8 |
 
 Score weights PSS 75% and process count 25%; higher is lighter. It is a
-footprint score, not a capture-quality score. The fast-switch chart below is the
-quality check.
+background-process score, not a UI or capture-quality score. The fast-switch
+chart below is the quality check. CLI/headless tools are in a separate reference
+after the UI cohort.
 
 ## Background footprint
 
-![Background footprint: PSS, switching CPU, and writes for ten trackers. Screen Time is second by score, with 4.48 MiB PSS and 80 KiB writes.](charts/footprint.svg)
+![Background footprint for UI-capable trackers: PSS, switching CPU, and writes. Screen Time is second by score, with 4.48 MiB PSS and 80 KiB writes.](charts/footprint.svg)
 
 Screen Time lands at 4.48 MiB PSS, 0.00% switching CPU, and 80 KiB of writes.
 Against ActivityWatch, that is roughly **1/18 the PSS** and **1/26 the writes**
 in this workload. Toki is smaller at 3.89 MiB, but it writes 396 KiB and loses
-short-switch coverage. HPR and Niri are the CPU outliers; ActivityWatch is the
-memory and write outlier.
+short-switch coverage. HPR is the CPU outlier; ActivityWatch is the memory and
+write outlier; Screentime (Qt) is the largest UI-capable process after
+ActivityWatch.
 
-Steady-focus CPU was near zero for most trackers. HPR reported 54.10%, Niri
-10.70%, Mono 1.90%, and Screentime 1.20%; the rest were at or below 0.50%. CPU
-includes child processes reaped by the tracker group during the phase.
+Steady-focus CPU was near zero for most trackers. HPR reported 54.10%, Mono
+1.90%, and Screentime 1.20%; the rest were at or below 0.50%. CPU includes child
+processes reaped by the tracker group during the phase.
 
 ## Fast switching
 
-![Fast-switch coverage: Screen Time and arbtt retained 10/10 apps; ActivityWatch 9/10; Niri 8/10; Mono 6/10; ScreenTimeLogger 3/10; atracker 2–3/10; Toki 1/10.](charts/fast-switch.svg)
+![Fast-switch coverage for UI-capable trackers: Screen Time 10/10; ActivityWatch 9/10; Mono 6/10; atracker 2–3/10; Toki 1/10.](charts/fast-switch.svg)
 
 The short workload switches once every 1.5 seconds and checks how many distinct
 fixture apps survive in each tracker's own records.
 
-- **10/10:** Screen Time, arbtt (arbtt was forced to one sample per second; its
-  default is 60 seconds).
+- **10/10:** Screen Time.
 - **9/10:** ActivityWatch.
-- **8/10:** Niri Screen Time.
 - **6/10:** Mono.
-- **3/10:** ScreenTimeLogger.
 - **2–3/10:** atracker.
 - **1/10:** Toki. Its default five-second noise floor absorbs shorter focuses
   into the previous session; the number describes what its SQLite history
@@ -87,9 +83,43 @@ fixture apps survive in each tracker's own records.
 Screen Time's 0 KiB write figure in the 15-second window excludes its shutdown
 flush. All scripted focus changes were verified in SQLite after termination.
 
+<details>
+<summary><strong>Headless/CLI reference (not in the UI cohort)</strong></summary>
+
+These tools have no foreground UI. Their numbers are useful for tracker cost,
+but they are not an apples-to-apples UI comparison.
+
+| Tracker | PSS (MiB) | Processes / threads | CPU, switching | Writes (KiB) | Fast-switch |
+|---|---:|---:|---:|---:|---:|
+| ScreenTimeLogger | 8.54 | 1 / 1 | 0.35% | 12 | 3/10 |
+| arbtt | 9.28 | 1 / 2 | 0.24% | 12 | 10/10 |
+| Niri Screen Time | 15.60 | 1 / 9 | 10.06% | 224 | 8/10 |
+
+arbtt was forced to one sample per second in the short workload; its default is
+60 seconds. Niri Screen Time and ScreenTimeLogger are CLI readers, so they do
+not have a foreground UI to compare with Screen Time or the other GUI tools.
+
+</details>
+
 ## UI latency and memory
 
-The packaged app read SQLite history generated by the six-second workload.
+Only Screen Time's foreground UI was measured. The background charts close every
+tracker UI, so they do not measure startup or memory of competitor browsers,
+Qt, Tauri, Slint, or terminal windows.
+
+| UI-capable tracker | UI surface | Foreground measured |
+|---|---|---|
+| Screen Time | Rofi popup | yes |
+| ActivityWatch | browser | no |
+| HPR | Slint | no |
+| Mono | terminal | no |
+| Toki | Tauri/WebKitGTK | no |
+| atracker | browser | no |
+| Screentime (Qt) | Qt | no |
+| ManicTime | Cloud/Server | no |
+
+The packaged Screen Time app read SQLite history generated by the six-second
+workload.
 
 | Metric | Median | Range | Runs |
 |---|---:|---:|---:|
@@ -102,14 +132,16 @@ dominate. An earlier wrapper/theme run measured 163.3 ms to visible, and a
 real-desktop run with the user theme/font measured roughly 185–260 ms. Those
 runs used different wrapper logic and are not directly comparable.
 
-This suite did not measure the browser, Qt, Tauri, or terminal interfaces of the
-other trackers under an equivalent foreground workload.
+The separate UI-shell prototype measured Rofi at 75.5 ms / 7.8 MiB and GTK4 at
+196.1 ms / 149.2 MiB. That is a shell comparison, not a tracker UI benchmark.
+No competitor's foreground UI was measured under an equivalent workload.
 
 ## Features and fit
 
 Screen Time is not the most feature-rich option. It is the smallest measured
-stack that combines Hyprland event capture, app-only storage, a keyboard-first
-popup, and a per-user installer/Nix module.
+UI-capable stack that combines Hyprland event capture, app-only storage, a
+keyboard-first popup, and a per-user installer/Nix module. The CLI-only tools
+below are included as references, not as UI peers.
 
 | If you need | Strong fit | Why |
 |---|---|---|
@@ -141,13 +173,14 @@ popup, and a per-user installer/Nix module.
 
 ## Installation footprint
 
-![Install footprint: Screen Time package 54.9 MiB, Screen Time plus Rofi 466.1 MiB, arbtt 89.4 MiB, ActivityWatch 2453.2 MiB.](charts/install-size.svg)
+![Install footprint for UI-capable tools: Screen Time package 54.9 MiB, Screen Time plus Rofi 466.1 MiB, ActivityWatch 2453.2 MiB.](charts/install-size.svg)
 
 The Screen Time package alone is 54.9 MiB in the Nix closure. A realistic
 desktop install adds Rofi: **466.1 MiB**. That is still well below the measured
-ActivityWatch closure at **2,453.2 MiB** without a separate browser, but above
-arbtt at **89.4 MiB**. These are uncompressed store closures, not download
-sizes or incremental disk use on a host that already has shared dependencies.
+ActivityWatch closure at **2,453.2 MiB** without a separate browser. These are
+uncompressed store closures, not download sizes or incremental disk use on a
+host that already has shared dependencies. arbtt is omitted here because it is
+CLI-only.
 
 ## Method
 
@@ -177,7 +210,8 @@ without a browser. arbtt ran at one sample per second versus its 60-second
 default so the short workload could exercise sampling. Screen Time's logind
 watcher was disabled in the fixture. atracker bound its API to loopback on an
 ephemeral port. The other configured capture intervals were their upstream
-defaults.
+defaults. Every UI-capable tracker ran with its foreground UI closed except
+Screentime's hidden Qt process; the UI costs above are separate.
 
 HPR used its true-headless mode with network access and app termination
 disabled. Screentime ran its Qt desktop process with the window hidden. These
@@ -296,5 +330,8 @@ the current charts.
 - PSS overcounts shared pages for multi-process trackers. The footprint score
   weights memory and process count; it is not a universal ranking.
 - Absolute latency and memory depend on Xvfb, fonts, and host conditions.
+- Competitor foreground UIs were not measured. The background charts close
+  every UI; the only foreground numbers are Screen Time/Rofi and the separate
+  Rofi-vs-GTK4 shell prototype.
 - ManicTime has no resource result here, and HPR/Screentime use product-specific
   wrappers. AArch64 was not measured in this cohort.

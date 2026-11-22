@@ -3,7 +3,7 @@
 A local screen-time tracker for Hyprland and systemd. Open Rofi to see daily
 totals, app timelines by category, and session details.
 
-[![Memory and fast-switch coverage across eight Linux trackers](docs/charts/memory-coverage.svg)](docs/EVALUATION.md)
+[![Memory and fast-switch coverage across UI-capable Linux trackers](docs/charts/memory-coverage.svg)](docs/EVALUATION.md)
 
 Screen Time stays in the low-memory group while keeping all 10 fast-switch
 apps. [See the charts and full comparison →](docs/EVALUATION.md)
@@ -32,7 +32,7 @@ nix build .#
 See the [user guide](docs/USER_GUIDE.md)
 for distro dependencies, Nix and Home Manager examples, updates, and troubleshooting.
 See the [evaluation](docs/EVALUATION.md)
-for charts, sandbox benchmarks, and a comparison with ten Linux trackers.
+for charts, sandbox benchmarks, and a comparison with UI-capable Linux trackers.
 
 ## Use
 
