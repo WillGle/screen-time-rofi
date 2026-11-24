@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> **This repository is retired and archived.** Development continues at
+> [WillGle/rofi-hub](https://github.com/WillGle/rofi-hub). Screen Time is now
+> the first app in the Rofi Hub workspace; install it from the new repository
+> with `bash install.sh --app screen-time`. Existing installations can follow
+> the [migration guide](https://github.com/WillGle/rofi-hub/blob/main/docs/MIGRATING.md).
+
 # screen-time-rofi
 
 A local screen-time tracker for Hyprland and systemd. Open Rofi to see daily
